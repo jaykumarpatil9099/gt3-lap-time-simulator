@@ -12,6 +12,32 @@
 
 ---
 
+## Entry 006 — 2026-04-16 — v02 aero downforce: 38 s gain, 7.2% too fast
+
+**Phase:** 4 (Model build — v02)
+
+**Done:**
+- Built v02 simulator (`03_models/v02_aero/lap_sim_v02.m`). Added speed-dependent grip: F_grip = μ × (m×g + aero_df_coeff × v²). Solver structure unchanged from v01.
+- Derived new closed-form cornering speed equation with downforce. Discovered critical curvature threshold (κ_crit = 0.0026, R = 385 m): corners gentler than this have no grip limit — downforce grows faster than cornering demand.
+- v02 result: **7:35.919** vs reference 8:11.341 = **-35.4 s (-7.2%)**.
+- v02 vs v01: **-37.8 s** (downforce value at N24).
+
+**Found:**
+- Downforce is worth ~38 seconds at N24 — by far the largest single physics effect in the model. No other parameter comes close.
+- 17,184 of 25,206 track points (68%) are aero-dominated (grip limit set by downforce, not base grip).
+- Max speed 289.6 km/h (realistic — drag-limited equilibrium working correctly).
+- Model is 7.2% too fast because constant μ overestimates grip at high aero loads. At 260 km/h, downforce adds ~11,400 N, nearly doubling the tyre load, but real μ drops from ~1.60 to ~1.45 at that load (load sensitivity). This overestimate compounds across every fast corner.
+
+**Think:**
+- v02 confirms that aero-without-load-sensitivity is dangerously optimistic. Real teams ALWAYS model load sensitivity alongside aero — this result shows exactly why. An engineer presenting a -7.2% prediction would lose credibility immediately.
+- The v01→v02 delta (+38 s for downforce) is a genuinely useful engineering number. It quantifies the aero's contribution to the lap and could inform wing-level trade-off decisions.
+- v03 (load sensitivity) should bring the time back up significantly, possibly close to the ±1% target. The question is whether it overshoots or undershoots.
+
+**Next:**
+- v03 — add tyre load sensitivity: μ(Fz) = μ_0 - k × Fz. This directly addresses the dominant error in v02.
+
+---
+
 ## Entry 005 — 2026-04-16 — Phase 3 complete: v01 point-mass simulator runs
 
 **Phase:** 3 (Model build — v01)
