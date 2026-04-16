@@ -12,6 +12,32 @@
 
 ---
 
+## Entry 005 — 2026-04-16 — Phase 3 complete: v01 point-mass simulator runs
+
+**Phase:** 3 (Model build — v01)
+
+**Done:**
+- Built the v01 point-mass QSS lap simulator (`03_models/v01_point_mass/lap_sim_v01.m`).
+- Model: fixed friction circle (μ = 1.60), aero drag (no downforce), engine torque curve with auto gear selection, three-pass solver (cornering → forward → backward), lap continuity iteration.
+- Debugged forward pass: initial code clamped `a_forward` to zero, preventing drag deceleration above equilibrium speed. Fixed to allow drag (an aero force, not a tyre force) to decelerate the car independently of the friction circle.
+- First sim result: **8:13.730** vs reference **8:11.341** = **+2.389 s (+0.5%)**.
+
+**Found:**
+- v01 hits ±1% target on first attempt. This is likely due to compensating errors: no downforce makes fast corners too slow (sim underestimates grip at high speed), while constant μ overestimates grip at high load (ignores load sensitivity). These errors partially cancel, giving a misleadingly close lap time.
+- Lap continuity iteration converges in 1 pass. Start/finish speed settles at ~233 km/h.
+- Min cornering speed: 65.7 km/h (tightest Nordschleife corner, ~21 m radius).
+- The speed comparison plot shows the sim tracks the reference shape well overall, but will diverge in specific zones once we look more closely during proper correlation analysis.
+
+**Think:**
+- The +0.5% headline number is encouraging but should not be over-interpreted. Channel-by-channel correlation (speed vs. distance overlay, g-g scatter) will reveal where the model is honest and where it's getting lucky. That's the real validation, not just the total lap time.
+- Adding downforce in v02 will change the picture significantly: fast-corner speeds will increase (more grip), but straight-line speed may drop (more drag from increased Cl). The net lap time effect is unclear until we run it.
+- The three-pass solver structure is clean and extensible — v02 only needs to modify how grip is computed at each point (make it speed-dependent), not the solver logic itself.
+
+**Next:**
+- Phase 4 — build v02 (add aerodynamic downforce to the grip model). This is the first model version where grip becomes speed-dependent.
+
+---
+
 ## Entry 004 — 2026-04-16 — Phase 2 complete: data acquisition done
 
 **Phase:** 2 (Data acquisition)
