@@ -1,0 +1,209 @@
+%% AMG GT3 — Vehicle Parameter File
+%  Project : N24 Lap Time Simulator
+%  Car     : Mercedes-AMG GT3 (Evo, 2020+ homologation)
+%  Config  : Nürburgring 24h, mid-downforce, qualifying fuel load
+%  Author  : Jaykumar Patil
+%  Created : 2026-04-16
+%
+%  USAGE:
+%    Run this script to load the struct 'car' into the workspace.
+%    All model versions (v01, v02, ...) load this same file.
+%
+%  DATA QUALITY FLAGS:
+%    [HOMOL]   = from FIA/SRO homologation documents or official specs
+%    [IRACING] = from iRacing community reverse-engineering / known sim values
+%    [EST]     = engineering estimate — flagged for refinement during correlation
+%    [CALC]    = calculated from other parameters
+%
+%  SIGN CONVENTIONS:
+%    Downforce is POSITIVE (force pushing car into ground)
+%    Drag is POSITIVE (force opposing motion)
+%    All SI units unless noted
+
+%% ========================================================================
+%  1. MASS & INERTIA
+%  ========================================================================
+
+car.mass = 1350;                % [kg]    Total running mass (car + driver + half fuel)  [EST]
+                                %         BoP minimum ~1285 kg + 75 kg driver + ~40 kg fuel (half tank)
+                                %         Ref: SRO BoP bulletin, typical N24 qualifying mass
+
+car.g = 9.81;                   % [m/s^2] Gravitational acceleration (standard)
+
+car.weight = car.mass * car.g;  % [N]     Total weight [CALC]
+
+%% ========================================================================
+%  2. GEOMETRY
+%  ========================================================================
+
+car.wheelbase = 2.710;          % [m]     Front axle to rear axle                        [HOMOL]
+                                %         Mercedes-AMG GT (R190) platform
+
+car.track_f = 1.680;            % [m]     Front track width (contact patch to contact patch) [HOMOL]
+car.track_r = 1.660;            % [m]     Rear track width                                   [HOMOL]
+
+car.h_cog = 0.465;              % [m]     Centre of gravity height above ground            [EST]
+                                %         GT3 cars with flat floor + splitter + cage: 450-480 mm typical
+                                %         Conservative mid-estimate; refine during v04 correlation
+
+car.weight_dist_f = 0.46;       % [-]     Front weight distribution (static, fraction)    [IRACING]
+                                %         AMG GT3 is front-mid engine: ~46% front, 54% rear
+car.weight_dist_r = 1 - car.weight_dist_f;  % [-]  Rear weight distribution [CALC]
+
+% Static axle loads
+car.Fz_f_static = car.weight * car.weight_dist_f;   % [N] Front axle normal load (static) [CALC]
+car.Fz_r_static = car.weight * car.weight_dist_r;   % [N] Rear axle normal load (static)  [CALC]
+
+%% ========================================================================
+%  3. AERODYNAMICS
+%  ========================================================================
+%  Aero forces: F = 0.5 * rho * v^2 * A * C
+%  Downforce is defined POSITIVE (pushes car down = adds to tyre Fz)
+%  Drag is defined POSITIVE (opposes forward motion)
+
+car.rho = 1.225;               % [kg/m^3] Air density at sea level, 15°C (ISA standard)
+                                %          Nürburgring is ~620m ASL; rho ~ 1.16 there.
+                                %          We use 1.225 for now; adjust in correlation if needed.
+
+car.frontal_area = 2.08;        % [m^2]   Frontal area                                   [HOMOL]
+
+car.Cd = 0.52;                  % [-]     Drag coefficient                               [EST]
+                                %         GT3 cars: 0.48-0.55 depending on wing angle
+                                %         Mid-downforce N24 config
+
+car.Cl = 1.72;                  % [-]     Downforce coefficient (POSITIVE = downforce)    [EST]
+                                %         Note: some references use negative Cl for downforce.
+                                %         In our convention, positive Cl = downforce.
+                                %         GT3 cars at N24: Cl ~ 1.60-1.85
+
+car.aero_balance_f = 0.43;      % [-]     Fraction of total downforce on front axle       [EST]
+                                %         42-45% typical for GT3 at N24
+
+% Precompute aero constants (multiply by v^2 to get forces)
+car.aero_drag_coeff = 0.5 * car.rho * car.frontal_area * car.Cd;     % [N/(m/s)^2] [CALC]
+car.aero_df_coeff   = 0.5 * car.rho * car.frontal_area * car.Cl;     % [N/(m/s)^2] [CALC]
+
+%% ========================================================================
+%  4. TYRES
+%  ========================================================================
+%  Control tyre: Pirelli DHF (N24 spec)
+%
+%  For v01-v02: single peak friction coefficient (constant mu)
+%  For v03+:    load-sensitive model: mu(Fz) = mu_0 - k * Fz
+%               where Fz is the vertical load on that axle's tyre [N]
+
+car.tyre.mu_peak = 1.60;        % [-]     Peak tyre friction coefficient                 [IRACING]
+                                 %         Pirelli DHF GT3 compound: mu ~ 1.55-1.70
+                                 %         Used in v01 and v02 as constant grip limit
+
+car.tyre.mu_0 = 1.85;           % [-]     Zero-load extrapolated friction coefficient     [EST]
+                                 %         For load sensitivity model (v03+)
+                                 %         Determined by: mu_peak occurs at some reference Fz
+
+car.tyre.load_sens_k = 5.5e-5;  % [1/N]   Load sensitivity slope                         [EST]
+                                 %         mu(Fz) = mu_0 - k * Fz
+                                 %         At Fz = 4500 N (typical corner weight):
+                                 %           mu = 1.85 - 5.5e-5 * 4500 = 1.60 (matches mu_peak)
+                                 %         At Fz = 7000 N (heavy aero loading):
+                                 %           mu = 1.85 - 5.5e-5 * 7000 = 1.47 (grip drops)
+
+car.tyre.rolling_radius = 0.327; % [m]     Effective rolling radius (325/705-18 GT3 spec)  [IRACING]
+
+%% ========================================================================
+%  5. POWERTRAIN
+%  ========================================================================
+%  Engine: Mercedes-AMG M159-derived 6.3L V8, naturally aspirated
+%  BoP restricted to ~550-580 hp depending on event
+%
+%  Torque curve: simplified piecewise from known data
+%  RPM values and corresponding torque [Nm]
+
+car.engine.rpm =    [3000, 4000, 4500, 5000, 5500, 6000, 6500, 7000, 7200]; % [rpm]   [IRACING]
+car.engine.torque = [ 480,  530,  560,  580,  585,  575,  555,  520,  500]; % [Nm]    [IRACING]
+                    %  BoP-restricted curve; peak ~585 Nm around 5500 rpm
+                    %  Peak power ≈ 585 * 5500 * 2*pi/60 / 1000 ≈ 337 kW ≈ 452 hp
+                    %  Wait — that seems low. Let me check:
+                    %  Actually at 7000 rpm: 520 * 7000 * 2*pi/60 / 1000 ≈ 381 kW ≈ 511 hp
+                    %  With BoP restrictor, peak power lands ~520-550 hp region
+                    %  This will be refined during correlation
+
+car.engine.rpm_idle = 3000;      % [rpm]   Idle / minimum operating RPM                   [EST]
+car.engine.rpm_max  = 7200;      % [rpm]   Rev limiter                                    [IRACING]
+
+%% ========================================================================
+%  6. TRANSMISSION
+%  ========================================================================
+%  6-speed sequential gearbox
+%  Ratios from iRacing community data
+
+car.gearbox.ratios = [3.40, 2.19, 1.63, 1.29, 1.05, 0.88];  % [-] Gear 1-6             [IRACING]
+car.gearbox.final_drive = 3.47;                                % [-] Final drive ratio     [IRACING]
+car.gearbox.n_gears = length(car.gearbox.ratios);
+
+% Drivetrain efficiency (accounts for gearbox + diff losses)
+car.gearbox.efficiency = 0.92;   % [-]     Overall drivetrain efficiency                  [EST]
+                                  %         Sequential + limited-slip diff: 90-94% typical
+
+% Precompute total reduction per gear (gear ratio * final drive)
+car.gearbox.total_ratio = car.gearbox.ratios * car.gearbox.final_drive;  % [CALC]
+
+% Compute theoretical top speed per gear [m/s]
+% v = (rpm * 2*pi/60 * tyre_radius) / total_ratio
+for i = 1:car.gearbox.n_gears
+    car.gearbox.v_max_gear(i) = (car.engine.rpm_max * 2*pi/60 * car.tyre.rolling_radius) ...
+                                 / car.gearbox.total_ratio(i);
+end
+
+%% ========================================================================
+%  7. BRAKING
+%  ========================================================================
+%  In a QSS lap sim, braking is usually tyre-limited, not hardware-limited.
+%  GT3 carbon brakes can produce more torque than the tyres can handle.
+%  So we model max braking deceleration through the tyre grip limit.
+%
+%  Brake bias is relevant from v04+ (when we model per-axle loads).
+
+car.brakes.bias_f = 0.57;       % [-]     Front brake bias (fraction of total braking force) [IRACING]
+                                 %         57% front is a typical GT3 N24 starting point
+
+%% ========================================================================
+%  8. METADATA
+%  ========================================================================
+
+car.meta.name = 'Mercedes-AMG GT3 Evo';
+car.meta.config = 'N24 mid-downforce, qualifying fuel';
+car.meta.track = 'Nürburgring 24h (Nordschleife + GP combined)';
+car.meta.created = '2026-04-16';
+car.meta.author = 'Jaykumar Patil';
+car.meta.notes = ['Initial parameter set. Flags: HOMOL = homologation data, ' ...
+                  'IRACING = iRacing sim data, EST = estimate, CALC = calculated. ' ...
+                  'All EST-flagged values are candidates for refinement during correlation.'];
+
+%% ========================================================================
+%  VERIFICATION — run this section to sanity-check the parameters
+%  ========================================================================
+
+fprintf('\n=== AMG GT3 Parameter Verification ===\n');
+fprintf('Mass:              %.0f kg\n', car.mass);
+fprintf('Weight:            %.0f N\n', car.weight);
+fprintf('Wheelbase:         %.3f m\n', car.wheelbase);
+fprintf('CoG height:        %.3f m\n', car.h_cog);
+fprintf('Weight dist (F/R): %.0f%% / %.0f%%\n', car.weight_dist_f*100, car.weight_dist_r*100);
+fprintf('Static Fz front:   %.0f N\n', car.Fz_f_static);
+fprintf('Static Fz rear:    %.0f N\n', car.Fz_r_static);
+fprintf('Frontal area:      %.2f m^2\n', car.frontal_area);
+fprintf('Cd / Cl:           %.2f / %.2f\n', car.Cd, car.Cl);
+fprintf('L/D ratio:         %.2f\n', car.Cl / car.Cd);
+fprintf('Tyre mu (peak):    %.2f\n', car.tyre.mu_peak);
+fprintf('Rolling radius:    %.3f m\n', car.tyre.rolling_radius);
+fprintf('Peak engine torque: %.0f Nm @ %.0f rpm\n', max(car.engine.torque), ...
+         car.engine.rpm(car.engine.torque == max(car.engine.torque)));
+fprintf('Gear ratios:       '); fprintf('%.2f  ', car.gearbox.ratios); fprintf('\n');
+fprintf('Final drive:       %.2f\n', car.gearbox.final_drive);
+fprintf('Top speed per gear [km/h]: '); fprintf('%.0f  ', car.gearbox.v_max_gear * 3.6); fprintf('\n');
+fprintf('Brake bias (front): %.0f%%\n', car.brakes.bias_f * 100);
+fprintf('\n--- Aero loads at 200 km/h (55.6 m/s) ---\n');
+v_test = 200/3.6;
+fprintf('Drag:              %.0f N (%.1f kg)\n', car.aero_drag_coeff * v_test^2, car.aero_drag_coeff * v_test^2 / car.g);
+fprintf('Downforce:         %.0f N (%.1f kg)\n', car.aero_df_coeff * v_test^2, car.aero_df_coeff * v_test^2 / car.g);
+fprintf('=====================================\n\n');

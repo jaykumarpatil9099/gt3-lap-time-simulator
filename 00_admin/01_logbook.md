@@ -12,6 +12,37 @@
 
 ---
 
+## Entry 004 — 2026-04-16 — Phase 2 complete: data acquisition done
+
+**Phase:** 2 (Data acquisition)
+
+**Done:**
+- Created vehicle parameter file (`02_data/car/amg_gt3_params.m`). All parameters loaded as a single `car` struct with data-quality flags: [HOMOL], [IRACING], [EST], [CALC]. Verification printout confirms sane values.
+- Created MATLAB startup script (`startup_project.m`) — sets project root as working directory and loads car parameters automatically.
+- Exported reference lap from iRacing via PI Toolbox Pro: 8:11.341 at N24 in AMG GT3. Group 1 channels (speed, accel, throttle, brake, gear, RPM, steering). Saved as `reference_lap.xls`.
+- Built import script (`02_data/telemetry/processed/import_reference_lap.m`): reads PI Toolbox export, converts units to SI, computes distance via trapezoidal integration of speed, saves clean `ref` struct as `.mat`.
+- Built track data script (`02_data/track/build_track.m`): computes curvature from lateral g and speed (kappa = a_lat/v²), smooths with 50 m moving average, resamples to 1 m uniform distance spacing.
+
+**Found:**
+- PI Toolbox export is at 100 Hz (interpolated from iRacing's native 60 Hz). Adequate resolution.
+- Computed track length: 25,206 m vs. official 25,378 m (0.7% shorter — expected, since racing line clips apexes vs. geometric centerline).
+- Lap duration from data: 491.330 s vs. stated 491.341 s (11 ms difference from last sample boundary — negligible).
+- Peak curvature ~0.047 [1/m] = ~21 m radius. Consistent with tightest Nordschleife corners (Karussell, Adenauer Forst).
+- Top speed per gear from params: 75, 117, 157, 198, 244, 291 km/h. 6th gear theoretical max (291) is above aero-limited top speed (~270), meaning car runs out of power before gears. Correct for N24 aero config.
+- Aero at 200 km/h: 6763 N downforce (~689 kg, about half car mass). L/D = 3.31. Both in expected GT3 range.
+- MATLAB `save` function does not resolve relative paths the same way `readtable` does — must use absolute paths via `fullfile(pwd, ...)`. Learned the hard way.
+
+**Think:**
+- All three data inputs for v01 are in place: car params, reference telemetry, track curvature.
+- Groups 2–4 telemetry (parameter extraction, GPS, extras) deferred — not needed until v02+ correlation when we refine [EST] parameters. GPS data available when needed for elevation profile.
+- The verification plots (speed trace, curvature, g-g) all look physically consistent. No gross data errors detected.
+- 50 m smoothing window for curvature is a tuneable parameter — may need refinement during correlation if sim speed oscillates or corners are over-smoothed.
+
+**Next:**
+- Phase 3 — build the v01 point-mass QSS simulator in MATLAB. First real model code.
+
+---
+
 ## Entry 003 — 2026-04-16 — Phase 1 complete: fidelity ladder accepted
 
 **Phase:** 1 (Requirements & fidelity decisions)
