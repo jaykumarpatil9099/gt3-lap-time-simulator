@@ -1,0 +1,47 @@
+# =============================================================
+# .gitignore for N24 Lap Time Simulator project
+# Anything matched here is NOT tracked by Git.
+# =============================================================
+
+# --- Raw telemetry (huge, binary, immutable) ---
+# We keep .ibt files in the folder for reference but never version them.
+# Processed CSV/MAT exports ARE versioned (they're our actual inputs).
+02_data/telemetry/raw/*.ibt
+02_data/telemetry/raw/*.IBT
+
+# --- MATLAB clutter ---
+*.asv          # autosave files
+*.m~           # backup files
+slprj/         # Simulink build cache
+*.slxc         # Simulink cache
+*.mex*         # compiled MEX binaries
+octave-workspace
+
+# --- MATLAB results that should be regenerated, not stored ---
+# (Note: we WILL commit small reference .mat files in 02_data/. These
+# patterns target outputs from running the model, not curated data.)
+03_models/**/output/
+04_correlation/**/output/
+05_studies/**/output/
+
+# --- OS junk ---
+.DS_Store        # macOS
+Thumbs.db        # Windows
+desktop.ini      # Windows
+
+# --- Editor junk ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- Large binaries we don't want in history ---
+*.zip
+*.7z
+*.tar.gz
+*.mp4
+*.mov
+
+# --- Sensitive ---
+# (none yet, but a placeholder. Never commit credentials, API keys, or
+# anything you wouldn't show in an interview.)
