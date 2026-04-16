@@ -12,6 +12,32 @@
 
 ---
 
+## Entry 003 — 2026-04-16 — Phase 1 complete: fidelity ladder accepted
+
+**Phase:** 1 (Requirements & fidelity decisions)
+
+**Done:**
+- Reviewed the fidelity ladder from Rung 1 (point-mass, fixed friction) through Rung 5 (bicycle + lateral load transfer). Studied what each rung adds and what it still misses.
+- Accepted the incremental roadmap: v01 → v02 → v03 → v04, with v05 as a stretch goal.
+- Wrote and committed Design Note 001 (`00_admin/02_design_note_001_fidelity.md`) capturing the architecture decision in ADR format: context, decision, rationale, alternatives considered, consequences.
+- Chose QSS (quasi-steady-state) time treatment over transient. Track will be discretized into segments; at each segment we solve for maximum speed given the current grip envelope.
+
+**Found:**
+- The core question in simulation engineering is not "is my model correct?" but "is my model correct enough for the question I'm asking?" — fidelity is a deliberate design choice, not a default.
+- The g-g diagram (friction circle) is the central concept: it represents the car's acceleration capability at any instant. For v01 it's a fixed circle; for v02+ it becomes speed-dependent (g-g-*v* surface) because aero downforce grows with speed.
+- Tyre load sensitivity (Rung 3) is where correlation typically improves the most: real tyres lose grip coefficient as vertical load increases, so ignoring this overestimates high-speed cornering.
+- Climbing rung-by-rung lets us quantify how much lap time each physical effect is worth at N24 — that's a learning output, not just an intermediate.
+
+**Think:**
+- The incremental approach is slower to build but dramatically easier to debug and learn from. If v03 produces a bad number, the diff against a trusted v02 isolates the problem to load sensitivity specifically. Jumping to v04 directly would make root-cause analysis nearly impossible.
+- QSS is the right choice: ~80% of professional setup studies are done QSS. Transient would require suspension/damper data we don't have and would add complexity without teaching the core lessons better.
+- v04 (+ longitudinal weight transfer) is the realistic target for the charter's ±1% lap time correlation. v05 is a bonus if time allows.
+
+**Next:**
+- Phase 2 — data acquisition. Collect AMG GT3 vehicle parameters (mass, CoG, wheelbase, aero map, tyre grip, engine curve, gearing) and process iRacing telemetry + track map through PI Toolbox into usable inputs.
+
+---
+
 ## Entry 002 — 2026-04-16 — Phase 0 complete: Git repo live
 
 **Phase:** 0 (Project setup)
