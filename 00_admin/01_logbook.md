@@ -12,6 +12,30 @@
 
 ---
 
+## Entry 002 — 2026-04-16 — Phase 0 complete: Git repo live
+
+**Phase:** 0 (Project setup)
+
+**Done:**
+- Installed Git for Windows and configured global `user.name` and `user.email`.
+- Cleaned up leftover `.git/` folder from failed sandbox attempt, then ran `git init -b main`, `git add .`, `git commit -m "setup: ..."` in Git Bash at the project root.
+- Verified first commit with `git log --oneline`. Hash on `main`: `9920ffb`.
+
+**Found:**
+- `git init` printed `warning: re-init: ignored --initial-branch=main` because a prior partial `.git/` still contained a valid commit. Subsequent `git add`/`git commit` returned "nothing to commit, working tree clean" — i.e. the state was already what we wanted. No harm done; just a quirk of reusing an existing `.git`.
+- Learned the core six Git commands: `init`, `status`, `add`, `commit`, `log`, `diff`.
+- Learned our commit-message convention: `<type>: <summary>`, types being `setup | data | model | corr | study | docs | fix`.
+
+**Think:**
+- Repo is correctly initialized with `main` as the primary branch. `.gitignore` is in place so raw telemetry and MATLAB clutter won't pollute history.
+- The working loop from now on is: edit → `git status` → `git add <files>` → `git commit -m "..."`. Every session ends with at least one commit.
+- The "re-init" warning is benign but worth remembering — Git treats `.git/` as sacred and won't overwrite it, so if something is wrong with a repo you delete `.git/` and start fresh.
+
+**Next:**
+- Begin Phase 1 — requirements & fidelity decisions. Pick the model architecture (point-mass QSS → what extensions, in what order) and write it up as a short design note in `00_admin/`.
+
+---
+
 ## Entry 001 — 2026-04-15 — Project kickoff
 
 **Phase:** 0 (Project setup)
