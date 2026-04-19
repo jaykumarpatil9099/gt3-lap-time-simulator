@@ -12,6 +12,100 @@
 
 ---
 
+## Entry 012 — 2026-04-19 — v04 rewrite validated: 7:50.704, weight-transfer cost +4.3 s
+
+**Phase:** 4 (Model build — v04 verified)
+
+**Done:**
+- Rewrote `lap_sim_v04.m` as "v03 grip model + per-axle loads + longitudinal transfer". Buggy version preserved as `lap_sim_v04_buggy_2026-04-18.m` for A/B reference.
+- Added single-source-of-truth helper `get_axle_grip_v04(v, dFz_long, car)` returning per-axle `Fz`, `μ`, `F_grip`. All three passes call it — no duplicated load equations that can drift out of sync.
+- Implemented per-axle friction circle in forward (RWD: rear only, `F_x_r_max = √(F_grip_r² − F_y_r²)`) and backward (both axles under brake-bias constraint `a = min(F_x_f_max/bias, F_x_r_max/(1−bias))/m`) passes.
+- Ran v04 after `startup_project; import_reference_lap; build_track; lap_sim_v03`. Continuity iteration converged in 1 iter.
+
+**Found:**
+- **v04 lap time: 7:50.704** (Δref = −20.637 s, −4.20%). v03 was 7:46.382. **Weight-transfer cost: +4.32 s** (positive = v04 slower = transfer reduces combined grip, as expected).
+- **Regression check passes.** Grip diagnostic at 200 km/h: v04 reports `a_grip = 23.30 m/s²`; v03 gives 23.35 m/s². Matches within rounding, confirming v04 collapses to v03 when `dFz_long = 0`.
+- μ split at 200 km/h: `μ_f = 1.602`, `μ_r = 1.547`. Rear per-tyre load is ~22% higher than front (`Fz_r/2 = 5504 N` vs `Fz_f/2 = 4500 N`), producing a 3.5% μ split. That split is the mechanism by which weight transfer costs lap time.
+- Max `a_long = 0.91 g` — realistic for a GT3 out of slow corners. `dFz` at 0.91 g = 2074 N matches `m·a·h/L` to the newton, confirming the implicit forward-pass solver is self-consistent.
+- **Red flag: max `a_brake = 3.65 g` / max |dFz| = 8301 N.** GT3 at N24 peaks around 2.5–2.8 g; 3.65 g is too high. The lever-arm math is internally consistent (8301 N matches 3.65 g transfer), so it is not a bookkeeping bug — likely either (a) iteration artefact at one outlier track point, or (b) a high-speed bias-constraint corner case where the front's aero-loaded grip headroom lets the formula over-deliver, with no wheel-lift ceiling to cap it.
+
+**Think:**
+- +4.32 s weight-transfer cost is physically sensible. Textbook expectation for a GT3 at N24 is 3–8 s; we're right in the middle.
+- The v04 rewrite has *uncovered* the curvature problem rather than v04-the-model hiding it. The remaining 20.6 s gap to reference decomposes roughly as: curvature under-reporting (10–15 s; still on 76% peak preservation from telemetry), driver pace (QSS optimum beats a real lap by 2–5 s), missing physics (tyre temp, fuel burn, shift time — a few s combined).
+- Entry 011's diagnosis is now fully validated. The 2026-04-18 "curvature is the bottleneck" theory was wrong; curvature improvement is still worth pursuing, but as a separate, additive axis of error — not the cause of v04's oscillation.
+
+**Next:**
+- Inspect the 3.65 g brake peak using the bonus diagnostic figure the v04 script already produces (`a_long` and `−a_brake` vs distance). Spike at one point → numerical outlier, note and move on. Plateau across several points → bias-constraint issue, consider capping `a_brake` physically or modelling rear wheel-lift.
+- Wire GPS-derived centerline into `build_track.m` as optional source (`track_source = 'gps' | 'telemetry'`). Re-run v02/v03/v04 on GPS track to quantify curvature's isolated contribution.
+- After both experiments, begin calibration: sweep `h_cog` ∈ [0.40, 0.52] m and `brake_bias_f` ∈ [0.53, 0.61] against reference lap, minimising lap-time delta and sector-by-sector Δspeed.
+
+---
+
+## Entry 011 — 2026-04-19 — v04 diagnosis: six physics bugs identified (retracts Entry 010 conclusion)
+
+**Phase:** 4 (Model build — v04 diagnosis)
+
+**Done:**
+- Diagnosed v04 `lap_sim_v04.m` line-by-line against v03 `lap_sim_v03.m`. Identified six distinct bugs in v04's grip and force physics.
+- Retracts Entry 010's conclusion that *"v04 code is correct; the issue is input quality"*. The +49.7 s penalty is not masked by curvature error — v04 has structural physics errors that would produce a large unphysical delta on any track.
+
+**Found — Bug list ranked by impact:**
+
+  1. **Cornering pass ignores aero downforce in lateral grip.** v04 line 131: `v_corner = sqrt(mu_eff * g / kappa)` uses `a_lat = μ·g`, i.e. v01-era physics. v03 uses `a_lat = μ·(m·g + F_df)/m`. At 200 km/h, downforce adds ~51% to static weight → v04 underestimates a_lat by ~34%, v_corner by ~18% in fast corners. **This alone explains the bulk of the 49.7 s.**
+  2. **Per-axle Fz used with per-tyre load-sensitivity coefficient.** v04 lines 123/126 feed `Fz_per_axle` (= Fz_total/2) into `k_load_sens`, which is calibrated for `Fz_per_tyre` (= Fz_total/4) in v03. μ drops 2× too fast with load. At 200 km/h: v03 μ = 1.575, v04 μ = 1.300.
+  3. **Forward-pass traction uses `a = μ·g` instead of `a = μ·Fz/m`.** v04 line 230. Correct RWD traction at rest: `a = μ · 0.54 · g`. v04 formula gives ~2× that figure; also loses downforce contribution at speed. Engine power dominates at medium/high v, limiting impact — but wrong at slow corner exits.
+  4. **Brake formula `min(μ_f·g, μ_r·g)` is nonphysical.** v04 line 313. Both axles brake simultaneously; correct limit is `(μ_f·Fz_f + μ_r·Fz_r)/m` subject to `brake_bias_f = 0.57`. Current formula throws away ~half of total brake force.
+  5. **No friction circle in forward/backward passes.** v03 uses `a_long = sqrt(a_total² − a_lat²)`. v04 treats lateral and longitudinal grip as independent, over-estimating grip on entry/exit of corners.
+  6. **Hard-coded 50/50 static and aero splits** ignore `car.weight_dist_f = 0.46` and `car.aero_balance_f = 0.43` from the params file.
+
+**Think:**
+- Root cause is architectural, not algebraic: v04 was written as a ground-up rewrite rather than "v03 physics + per-axle loads + longitudinal transfer". Several pieces of v03's correct grip calculation got dropped in the rewrite (aero-inclusive Fz, per-tyre k scaling, friction circle).
+- Entry 010's "curvature data is critical" hypothesis is not supported by the code. Fixing curvature will improve absolute accuracy across all models, but will NOT close the v03→v04 gap because the gap is caused by code-level physics errors in v04. GPS centerline work from 2026-04-19 remains independently valuable.
+- Expected v04 result after fix: **7:50 – 7:58** (i.e. 4–12 s slower than v03, not 50 s slower). Weight transfer should reduce combined grip modestly on corner entry/exit; a 50-second penalty implies the model is leaving nearly a third of total grip on the table, which is non-physical.
+
+**Next:**
+- File a GitHub issue capturing the six bugs (draft in `00_admin/v04_github_issue.md`).
+- Rewrite `lap_sim_v04.m` as "v03 + per-axle loads + longitudinal transfer" preserving v03's grip calculation. Ordered fix plan:
+  1. Per-axle grip function returning `(a_f, a_r)` using correct `weight_dist_f` / `aero_balance_f` and per-tyre k.
+  2. Cornering pass: use `a_lat = (F_grip_f + F_grip_r)/m` with zero longitudinal transfer.
+  3. Forward pass: iterative solve with `dFz = m·a·h/L`, friction circle, RWD traction `a = μ_r·Fz_r/m`.
+  4. Backward pass: same but with brake-bias-aware combined braking force.
+- Confirm expected result lands in 7:50–7:58 range before proceeding to v05.
+
+---
+
+## Entry 010 — 2026-04-18 — v04 weight transfer: 49.7 s penalty; curvature data critical
+> **⚠ Superseded by Entry 011 (2026-04-19):** the "v04 code is correct, issue is curvature data" conclusion below is wrong. v04 has six code-level physics bugs — see Entry 011.
+
+
+**Phase:** 4 (Model build — v04)
+
+**Done:**
+- Built v04 simulator (`03_models/v04_weight_transfer/lap_sim_v04.m`). Added longitudinal weight transfer: during acceleration, weight shifts to rear (increases rear grip, decreases front grip); during braking, weight shifts to front (increases front grip, decreases rear grip).
+- Physics: dFz = m × a_long × h_cog / wheelbase. Front and rear loads computed separately. Load sensitivity applied per-axle.
+- Braking model checks BOTH front and rear axle limits; takes minimum (whichever reaches grip limit first).
+- v04 result: **8:36.089** vs reference 8:11.341 = **+24.7 s (+5.0%)**.
+- v04 vs v03: **+49.7 s** penalty (weight transfer cost).
+
+**Found:**
+- v04 swung from v03's −25.0 s to +24.7 s — a 50-second swing, which is huge and unphysical.
+- The progression v01 (+2.4) → v02 (−35.4) → v03 (−25.0) → v04 (+24.7) oscillates instead of converging, suggesting input data error, not physics error.
+- Curvature data at 76% peak preservation is now identified as the critical bottleneck. The differences between v02, v03, v04 are so large that systematic curvature error overwhelms the model differences.
+- When corner tightness is mis-reported (corners smoothed to appear gentler), adding grip-reducing physics (load sens, weight transfer) compounds the error, making the car appear much slower than it should be.
+
+**Think:**
+- Weight transfer is a real physical effect (~50 seconds worth at N24 if the model is correct). But we can't validate the magnitude with curvature error masking it.
+- The correct approach: fix curvature data FIRST (via GPS or clean lap → 90%+ preservation), THEN tune load sensitivity and weight transfer coefficients to match reference lap.
+- We've been building models in the right order (v01 → v02 → v03 → v04), but on bad input data. Like trying to tune a car's setup with a broken load cell.
+- v04 code is correct (physics equations are sound, solver structure works). The issue is input quality, not the model.
+
+**Next:**
+- CRITICAL: Extract GPS geometric curvature from .pxt file or do clean mapping lap to reach 90%+ peak preservation.
+- Once curvature is fixed, re-run v02, v03, v04 to see realistic deltas for each physics addition.
+- Proceed to v05 (bicycle model, lateral load transfer) only after curvature is validated.
+
+---
+
 ## Entry 008 — 2026-04-16 — Root cause found: curvature smoothing destroys 34% of peak
 
 **Phase:** 4 (Correlation diagnosis)
