@@ -48,57 +48,74 @@ fprintf('\n=== Building Track Data ===\n');
 
 g = 9.81;  % [m/s^2]
 
-% Convert lateral g to m/s^2
-a_lat_ms2 = ref.g_lat * g;    % [m/s^2]
+% ---- STAGE 1: Median-filter the lateral g BEFORE computing curvature ----
+%  The raw lateral g from iRacing includes transient spikes from kerb hits,
+%  bumps, and suspension transients. These are NOT steady-state cornering.
+%  A QSS sim only cares about steady-state.
+%
+%  MEDIAN FILTER: replaces each value with the median of its neighbors.
+%  Key property: it kills spikes (outliers) while preserving step edges
+%  (real corner entries/exits). This is exactly what we need — a 4.4 g
+%  kerb spike gets killed, but a real jump from 0 g to 1.5 g at corner
+%  entry is preserved.
+%
+%  Window: 15 samples (~7.5 m at 0.5 m spacing). Wide enough to span
+%  a kerb hit (~1-3 m), narrow enough to preserve real corner shapes.
 
-% Clamp speed: below 10 m/s (36 km/h), curvature is unreliable
+a_lat_raw_ms2 = ref.g_lat * g;   % [m/s^2]
+
+median_window = 15;  % samples (~7.5 m)
+if mod(median_window, 2) == 0
+    median_window = median_window + 1;
+end
+
+a_lat_filtered = medfilt1(a_lat_raw_ms2, median_window);
+
+fprintf('Median filter applied: window = %d samples\n', median_window);
+fprintf('  Raw g_lat range:      %.2f to %.2f g\n', min(ref.g_lat), max(ref.g_lat));
+fprintf('  Filtered g_lat range: %.2f to %.2f g\n', ...
+        min(a_lat_filtered/g), max(a_lat_filtered/g));
+
+% ---- Compute curvature from FILTERED lateral g ----
 v_clamped = max(ref.v, 10);    % [m/s] minimum 10 m/s
+kappa_raw = a_lat_filtered ./ (v_clamped.^2);   % [1/m]
 
-% Raw curvature
-kappa_raw = a_lat_ms2 ./ (v_clamped.^2);   % [1/m]
-
-fprintf('Raw curvature computed. Range: %.6f to %.6f [1/m]\n', ...
+fprintf('Curvature (after median filter). Range: %.6f to %.6f [1/m]\n', ...
         min(kappa_raw), max(kappa_raw));
 
 %% ========================================================================
-%  3. SMOOTH THE CURVATURE
+%  3. SMOOTH THE CURVATURE (Stage 2 — gentle moving average)
 %  ========================================================================
-%  We use a moving-average filter. The window size controls the trade-off:
-%    - Too small: noisy curvature → simulator speed oscillates
-%    - Too large: corners get rounded off → simulator carries too much speed
+%  After the median filter removed spikes, we apply a SMALLER moving
+%  average (20 m instead of 50 m) for final cleanup. This preserves
+%  much more of the real corner peaks.
 %
-%  A window of ~50 m is a good starting point for a 25 km track.
-%  At our sample spacing (~0.5 m per sample at average speed), that's
-%  about 100 samples.
+%  PREVIOUS ISSUE: 50 m window only preserved 66% of peak curvature.
+%  The tightest corner went from R=13.9 m to R=21.2 m — a massive error
+%  that made the sim ~36 seconds too fast.
 %
-%  WHY MOVING AVERAGE (not Butterworth, Savitzky-Golay, etc.):
-%  It's the simplest filter that does the job. In a QSS sim, we don't need
-%  phase-preserving or derivative-preserving filtering — we just need a
-%  smooth curvature profile that represents the "average" corner radius
-%  at each point. Moving average does this transparently and is easy to
-%  understand and debug.
+%  With the two-stage approach (median + 20 m average), we expect to
+%  preserve 85-90% of peak curvature.
 
-% Compute average sample spacing
 ds_mean = ref.dist(end) / (length(ref.dist) - 1);   % [m/sample]
 fprintf('Mean sample spacing: %.3f m\n', ds_mean);
 
-% Smoothing window: ~50 m worth of samples
-smooth_window_m = 50;                                 % [m]
+smooth_window_m = 20;                                 % [m] (was 50 m)
 smooth_window_samples = round(smooth_window_m / ds_mean);
 
-% Make sure window is odd (required for centered moving average)
 if mod(smooth_window_samples, 2) == 0
     smooth_window_samples = smooth_window_samples + 1;
 end
 
-fprintf('Smoothing window: %d samples (~%.0f m)\n', ...
+fprintf('Moving average window: %d samples (~%.0f m)\n', ...
         smooth_window_samples, smooth_window_samples * ds_mean);
 
-% Apply moving average using movmean (built-in MATLAB function)
 kappa_smooth = movmean(kappa_raw, smooth_window_samples);
 
-fprintf('Smoothed curvature range: %.6f to %.6f [1/m]\n', ...
+fprintf('Final curvature range: %.6f to %.6f [1/m]\n', ...
         min(kappa_smooth), max(kappa_smooth));
+fprintf('Peak preservation: %.0f%% (target: >85%%)\n', ...
+        max(abs(kappa_smooth)) / max(abs(a_lat_raw_ms2 ./ (v_clamped.^2))) * 100);
 
 %% ========================================================================
 %  4. RESAMPLE TO UNIFORM DISTANCE SPACING

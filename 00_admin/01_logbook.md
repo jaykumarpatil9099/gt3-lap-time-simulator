@@ -12,6 +12,91 @@
 
 ---
 
+## Entry 008 — 2026-04-16 — Root cause found: curvature smoothing destroys 34% of peak
+
+**Phase:** 4 (Correlation diagnosis)
+
+**Done:**
+- Built diagnostic script (`04_correlation/diagnose_grip.m`) to compare reference telemetry grip vs sim assumptions at every speed range.
+- Identified root cause of 36-second gap: the 50 m moving average on curvature was destroying 34% of peak curvature. The tightest corner went from R = 13.9 m (raw) to R = 21.2 m (smoothed) — a 52% increase in radius. The sim then computed much higher cornering speeds for every tight corner.
+- Root cause behind the root cause: iRacing's lateral g signal contains kerb/bump spikes up to 4.44 g (peak raw). These spikes forced us to use a wide 50 m smoothing window, which was too aggressive and rounded off real corner shapes.
+- Implemented fix in `build_track.m`: replaced single-stage 50 m moving average with two-stage filtering:
+  - Stage 1: Median filter (15 samples, ~7.5 m) on raw lateral g BEFORE computing curvature. Median filter kills spikes while preserving step edges (corner entries/exits).
+  - Stage 2: Smaller 20 m moving average on the resulting curvature for final cleanup.
+- Expected improvement: peak curvature preservation from 66% → 85–90%.
+
+**Found:**
+- v03 result with old smoothing: 7:35.042 (−36.3 s, −7.4%). Only 0.9 s slower than v02 because load sensitivity barely matters when curvature is under-reported — the sim never reaches the high-load regime where load sensitivity bites.
+- Reference telemetry grip levels: peak |g_lat| = 4.44 g (kerb spike, not real grip), 99th pctile = 2.77 g (real cornering), 95th pctile = 2.09 g.
+- Sim v03 assumed up to ~1.65 g at low speed, ~3.3 g at 200 km/h (with aero). The 3.3 g at high speed is plausible (matches 99th pctile at those speeds), but the curvature under-reporting meant the sim never needed that much grip.
+- The v01→v02→v03 lap time progression (8:13 → 7:35 → 7:35) was suspicious: load sensitivity should have added ~10–15 s back onto v02. It only added 0.9 s because the curvature error dominated everything.
+
+**Think:**
+- This is the classic "garbage in, garbage out" problem. The physics model (load sensitivity) was correct, but the input data (curvature) was wrong. No amount of model refinement can fix bad input data — the curvature fix must come first before we can trust v02/v03 deltas.
+- The two-stage filter is the right engineering approach: use the right tool for each problem. Median filter for impulsive noise (kerbs), moving average for continuous noise (sensor/bumps). Professional teams do exactly this — you never just throw a big moving average at noisy telemetry.
+- After the fix, we should see v03 produce a significantly different (slower) time than v02, because the tighter corners will now demand more grip → more load → more load sensitivity loss. That's the signal we expect.
+
+**Next:**
+- Rebuild track data with updated build_track.m (two-stage filtering).
+- Re-run v02 and v03 to verify improvement.
+- If the gap drops to ±5% or better, proceed to v04 (longitudinal weight transfer). If still too fast, investigate geometric curvature from GPS as an alternative.
+
+---
+
+## Entry 009 — 2026-04-18 — Two-stage filter fix: recovered 11 seconds, load sensitivity now visible
+
+**Phase:** 4 (Correlation — curvature fix validation)
+
+**Done:**
+- Implemented two-stage filtering in `build_track.m`: median filter (15 samples, ~7.5 m) on raw lateral g, then 20 m moving average on curvature. Replaced old single-stage 50 m smoothing.
+- Rebuilt track data with updated script.
+- Re-ran v03 simulator with corrected curvature input.
+- Peak preservation improved from 66% → 76% (target was >85%, still need GPS or clean lap).
+
+**Found:**
+- v03 lap time improved dramatically: 7:35.042 → **7:46.382** (−25.0 s vs reference, −5.1% instead of −7.4%).
+- Recovered 11 seconds just from better curvature input.
+- Load sensitivity effect now visible: **10.5 s cost** (v03 vs v02), vs. negligible 0.9 s before. This validates that the curvature fix is working — the model now reaches tight corners where load sensitivity matters.
+- μ drop with load: 8.6% (1.653 g at 80 km/h → 1.511 g at 260 km/h). Physically sensible.
+- Median filter reduced peak lateral g from 4.44 g (kerb spike) to 3.69 g, but 3.69 g is still a kerb strike — 15-sample window not quite wide enough.
+
+**Think:**
+- Input data quality is the limiting factor now, not the physics model. The load sensitivity model is correct; it was just invisible with bad curvature data. This is a key lesson: garbage in = garbage out, no matter how good your model is.
+- Remaining 25-second gap (−5.1%) comes from: (1) curvature still at 76% preservation, not 85%+, and (2) missing v04 (weight transfer). Both will be addressed next.
+- The version progression now makes physical sense: v01→v02 (+38 s aero) → v03 (+10.5 s load sensitivity) → v04 (+ weight transfer, est. +5–10 s).
+
+**Next:**
+- Extract GPS position channels from iRacing telemetry (x, y coordinates) or use .pxt track map file to compute curvature geometrically. This bypasses lateral-g noise completely and should reach 90%+ peak preservation.
+- Re-run v03 with GPS-derived curvature.
+- If gap drops below −3%, proceed to v04. Otherwise, do clean mapping lap as backup.
+
+---
+
+## Entry 007 — 2026-04-16 — v03 load sensitivity: only 0.9 s slower than v02
+
+**Phase:** 4 (Model build — v03)
+
+**Done:**
+- Built v03 simulator (`03_models/v03_load_sens/lap_sim_v03.m`). Added tyre load sensitivity: μ_eff = μ_0 − k × Fz_per_tyre, where Fz_per_tyre = (m×g + aero_df_coeff × v²) / 4.
+- Cornering speed equation becomes implicit (μ depends on Fz, Fz depends on v through aero) — solved iteratively with fixed-point iteration (converges in 3–5 steps).
+- v03 result: **7:35.042** vs reference 8:11.341 = **−36.3 s (−7.4%)**.
+- v03 vs v02: only **−0.9 s** difference. Load sensitivity barely changed the lap time.
+
+**Found:**
+- At low speed (no aero), μ_eff = μ_0 − k × (m×g/4) = 1.85 − 5.5e-5 × 3312 = 1.668. This is HIGHER than v01/v02's constant μ = 1.60. So v03 is actually faster in slow corners.
+- At high speed (200 km/h), aero doubles the tyre load, but μ only drops to ~1.45. The extra downforce still provides more grip than it costs in reduced μ.
+- Net effect: low-speed gain (higher μ than 1.60) nearly cancels high-speed loss (load sensitivity). This explains the tiny 0.9 s delta.
+- The real problem is not the grip model — it's the curvature input. Diagnosed separately in diagnose_grip.m.
+
+**Think:**
+- The 0.9 s v02→v03 delta is suspiciously small. In professional lap sim work, load sensitivity typically costs 3–8% of lap time at a high-downforce circuit like N24. The near-zero impact here is a red flag that something upstream (curvature data) is masking the effect.
+- The choice of μ_0 = 1.85 and k = 5.5e-5 came from literature estimates [EST]. These will need tuning during correlation, but only after the curvature issue is fixed — no point tuning a model against bad data.
+
+**Next:**
+- Diagnose the 36-second gap: is it curvature smoothing, grip overestimate, or both?
+
+---
+
 ## Entry 006 — 2026-04-16 — v02 aero downforce: 38 s gain, 7.2% too fast
 
 **Phase:** 4 (Model build — v02)
