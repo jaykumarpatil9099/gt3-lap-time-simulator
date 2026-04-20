@@ -2,6 +2,7 @@
 
 **Author:** Jaykumar Patil
 **Created:** 2026-04-16
+**Last revised:** 2026-04-20 — added sections on the GPS centerline track source (§4A), v03 load sensitivity (§8), v04 longitudinal weight transfer (§9), and correlation diagnostics (§10); rewrote §4.4 around the two-stage curvature filter; refreshed the data-flow diagram in §5 to reflect the built v01..v04 solvers and the track-source dispatcher.
 **Purpose:** Documents every calculation, equation, assumption, and design decision made in this project. This is the document you open when you ask "why did we do it this way?" or "what does this equation mean?"
 
 ---
@@ -11,10 +12,14 @@
 1. Project architecture overview
 2. Vehicle parameter file — every parameter explained
 3. Telemetry import — how raw data becomes usable
-4. Track data — how we extract the track from telemetry
+4. Track data (telemetry source) — how we extract curvature from the racing line
+4A. Track data (GPS source) — geometric curvature from the centerline
 5. Data flow diagram
 6. Unit conventions
 7. Key equations summary
+8. v03 — tyre load sensitivity
+9. v04 — longitudinal weight transfer and per-axle grip
+10. Correlation and diagnostics
 
 ---
 
@@ -399,15 +404,18 @@ Saved as both the original `.xls` (archival, human-readable) and `.mat` (fast MA
 
 ---
 
-## 4. Track Data — How We Extract the Track from Telemetry
+## 4. Track Data (Telemetry Source) — How We Extract Curvature from the Racing Line
 
-File: `02_data/track/build_track.m`
+Dispatcher: `02_data/track/build_track.m`
+Implementation: `02_data/track/build_track_telemetry.m`
+
+`build_track.m` is a one-screen dispatcher that reads the workspace variable `track_source` (defaulting to `'telemetry'`) and delegates to the matching builder. The telemetry path is described in this section; the alternative GPS path is §4A. Either path produces a schema-compatible `track` struct, so every solver downstream is agnostic to which source was used.
 
 ### 4.1 The core idea
 
 A QSS lap simulator doesn't need a map of the track (GPS coordinates). It needs one thing: **curvature at every point along the track**. Curvature tells the solver "how tight is this corner?" and from that, the solver calculates the maximum cornering speed.
 
-We extract curvature directly from the telemetry, using the fact that lateral acceleration and speed are related to corner radius by Newton's second law for circular motion.
+The telemetry source extracts curvature directly from the reference lap's lateral-acceleration and speed channels, using the fact that lateral acceleration and speed are related to corner radius by Newton's second law for circular motion. The centerline it produces is therefore the driver's **racing line**, not the geometric centerline — an important caveat for correlation.
 
 ### 4.2 The curvature equation
 
@@ -439,26 +447,21 @@ At very low speeds (e.g. 5 m/s = 18 km/h), v² is only 25 m²/s². Even a tiny l
 
 That's nonsense — the car might just be drifting slightly in a pit lane. We clamp the minimum speed to 10 m/s (36 km/h) to avoid these false curvature spikes.
 
-### 4.4 Why we smooth the curvature (and how)
+### 4.4 Why we smooth the curvature — a two-stage filter
 
-**The problem:** raw lateral acceleration from iRacing at 100 Hz contains noise — kerb strikes, bumps, minor steering corrections, sensor jitter. This noise creates tiny rapid fluctuations in the computed curvature. If we feed this directly to the simulator, it would predict rapid speed oscillations that don't exist in reality.
+**The problem.** Raw lateral acceleration from iRacing at 100 Hz contains noise of two different kinds. The first is sensor-level spikes from kerb strikes, bumps, and suspension transients — these are short-duration (1–3 m of track) and **not** steady-state cornering, so a QSS solver has no business seeing them. The second is low-amplitude sensor jitter spread across the entire signal. If we fed the raw curvature into the simulator it would predict unphysical speed oscillations and would over-estimate the tightness of every corner that contains a kerb.
 
-**The solution:** smooth the curvature with a moving average filter.
+**Why a single moving average is not enough.** The very first version of this script used a single 50 m moving average on the curvature. That choice had an expensive failure mode: the moving average, when asked to squash a 4 g kerb spike surrounded by a ~1.5 g real corner plateau, does so by spreading the spike's energy across 50 m of neighbouring samples. In doing so it also *rounds off* the real corner peak. On the N24 telemetry this reduced peak curvature preservation to 66% — the tightest corner (a ~14 m radius hairpin) came out as R ≈ 21 m, and v01 ran ~36 seconds faster than reference (Entry 008 in the logbook diagnoses this).
 
-**What is a moving average?** At each point, replace the value with the average of all values within a window centered on that point. With a 97-sample window:
+**The two-stage fix.** Instead of one aggressive filter, we use two targeted ones:
 
-    kappa_smooth(i) = mean(kappa_raw(i-48 : i+48))
+*Stage 1 — median filter on `a_lat`, 15 samples (~7.5 m).* A median filter replaces each sample with the median of its neighbours, which has the property that it kills isolated outliers but preserves step edges. That is exactly the right tool for kerb spikes: a 4 g spike is seen as an outlier and discarded, while a real step from 0 g to 1.5 g at corner entry is preserved because the neighbourhood majority is already on the new plateau. The window (~7.5 m) is wide enough to span a kerb strike but narrow enough to fit inside any real corner.
 
-**Why 50 m window?** This represents a physical length of track. A 50 m window:
-- Is long enough to average out noise from kerbs and bumps (which happen over 1-5 m)
-- Is short enough to preserve the shape of real corners (even a tight hairpin spans 30-50 m of track)
+*Stage 2 — moving average on `κ`, 20 m.* Once the spikes are gone, a small moving average is enough to clean the residual jitter without rounding off the corner peaks.
 
-If the window were too small (5 m): noise passes through, sim speed oscillates.
-If the window were too large (200 m): real corners get smeared out, sim predicts too-high speed in corners.
+With the two-stage filter, peak curvature preservation on the telemetry source comes out around 76%. That number looks low, but it has to be read in context: the racing line clips apexes and therefore over-reports peak curvature relative to the geometric centerline, so 76% of a racing-line peak is not the same as 76% of the truth. The GPS source described in §4A does not suffer from this ambiguity because it does not involve `a_lat` at all.
 
-50 m is a starting point — we can tune this during correlation.
-
-**Why moving average instead of a fancier filter?** Simplicity and transparency. A Butterworth or Savitzky-Golay filter would give slightly better performance, but the moving average is completely transparent — you can explain exactly what it does in one sentence. In engineering, understanding your tool is more important than using the fanciest tool.
+**Why moving average instead of a fancier filter?** Simplicity and transparency. A Butterworth or Savitzky-Golay filter would give slightly better frequency shaping, but the moving average and the median filter are completely transparent — you can explain exactly what they do in one sentence each. In correlation work, understanding your tool is more important than using the fanciest tool; anything you don't understand will eventually bite you on a setup change you can't interpret.
 
 ### 4.5 Resampling to uniform distance spacing
 
@@ -487,61 +490,121 @@ Direction becomes relevant at v05 (bicycle model) where left and right tyres car
 
 ### 4.7 The track struct
 
-    track.dist   → distance along track [m], uniform 1 m spacing
-    track.kappa  → unsigned curvature [1/m] at each distance point
-    track.ds     → sample spacing (1.0 m)
-    track.n      → number of points (25,206)
-    track.length → total track length (25,206 m)
-    track.ref.*  → reference telemetry resampled to the same grid (for correlation)
+    track.dist    → distance along track [m], uniform 1 m spacing
+    track.kappa   → unsigned curvature [1/m] at each distance point
+    track.ds      → sample spacing (1.0 m)
+    track.n       → number of points (~25,206 on the telemetry source)
+    track.length  → total track length in metres
+    track.ref.*   → reference telemetry resampled to the same grid (for correlation)
+    track.meta.*  → name, source string, ref lap time, smoothing parameters, notes
 
 ### 4.8 Verification: what the plots should show
 
 **Curvature vs distance:** spikes at every corner, near-zero on straights. The tallest spikes (~0.047 [1/m]) are the tightest corners (Karussell, Adenauer Forst hairpins).
 
-**Corner radius vs distance:** the inverse of curvature. Shows ~21 m at the tightest points, 2000 m (capped) on straights.
+**Corner radius vs distance:** the inverse of curvature. Shows ~14–21 m at the tightest points (depending on source and smoothing), 2000 m (capped) on straights.
 
-**Speed vs curvature overlay:** this is the critical check. Every curvature peak MUST align with a speed valley. High curvature = tight corner = low speed. If you see high curvature where speed is also high, the data is corrupt. In our case, they align correctly.
+**Speed vs curvature overlay:** this is the critical check. Every curvature peak MUST align with a speed valley. High curvature = tight corner = low speed. If you see high curvature where speed is also high, the data is corrupt. In our case they align correctly.
+
+---
+
+## 4A. Track Data (GPS Source) — Geometric Curvature from the Centerline
+
+Implementation: `02_data/track/build_track_from_gps.m`
+Input CSV: `02_data/track/pxt_centerline.csv` (extracted from `Nurburgring Combined Track.pxt`)
+
+### 4A.1 Motivation
+
+The telemetry source has two unavoidable limitations. It uses the driver's racing line rather than the geometric centerline, so the curvature it sees at each apex is biased by however aggressively the driver cut the corner. And it depends on a noisy `a_lat` signal, which forces smoothing that rounds off real corners. The GPS source was introduced to remove both of those limitations in one go — it uses no speed or g-sensor at all, and it uses the track's geometric centerline.
+
+### 4A.2 The geometric curvature formula
+
+Given a parametric curve `r(s) = (x(s), y(s))` arc-length-parameterised, the curvature is
+
+    κ(s) = (x'(s) · y''(s) − y'(s) · x''(s)) / (x'(s)² + y'(s)²)^(3/2)
+
+where primes are derivatives with respect to `s`. In practice we resample `x` and `y` to a uniform 1 m grid and take central differences; the denominator normalises out the fact that our numerical `s` is not perfectly arc-length even after resampling.
+
+This is pure geometry. Nothing about the driver, the car, or the telemetry enters. If two different drivers lap the same track, the GPS-source curvature is identical for both; only the racing line they choose on top of it changes.
+
+### 4A.3 Smoothing — light, and in the right place
+
+The GPS centerline is already clean, so the filter requirements are very different from the telemetry path:
+
+- *Pre-smooth the coordinates*: a 3 m moving average on `x` and `y` suppresses the small-scale quantisation noise that comes from interpolating the native ~3 m samples onto a 1 m grid. Three metres is well inside the tightest corner radius, so corner shapes are not touched.
+- *Post-smooth the curvature*: a 5 m moving average on `κ` cleans the residual high-frequency noise from the double numerical differentiation. Anything larger than 5 m would start to flatten real corners.
+
+With this light, two-sided smoothing the GPS source typically preserves >95% of peak curvature (the comparison plot saved at `02_data/track/pxt_curvature_comparison.png` shows this against the raw unsmoothed geometric κ).
+
+### 4A.4 Bringing the reference telemetry onto the GPS grid
+
+The reference lap is indexed by racing-line distance (~25,206 m) while the GPS centerline is ~25,176 m. The ~30 m difference is the racing line clipping apexes over 170+ corners — about 0.12% of total length. To put both on one distance axis for correlation we linearly rescale `ref.dist` to the GPS length. The rescale is within the sim's 1 m spatial resolution and preserves event ordering, which is all a QSS correlation requires.
+
+### 4A.5 The track struct on the GPS source
+
+The top-level fields (`dist`, `kappa`, `ds`, `n`, `length`, `ref.*`, `meta.*`) match the telemetry struct exactly, so every solver runs unchanged. The GPS path adds bonus fields that the solvers ignore but the plotting scripts can use:
+
+    track.x, track.y, track.z   → centerline coordinates in metres (local projection; z is MSL elevation)
+    track.lat, track.lon         → WGS84 coordinates
+    track.kappa_signed           → signed curvature (positive = left-hand corner)
+
+### 4A.6 How to switch between the two sources
+
+In MATLAB:
+
+    >> track_source = 'gps';   % or 'telemetry' (default)
+    >> build_track
+
+The dispatcher file is small and human-readable; anything unexpected is obvious on a single page. Running v02/v03/v04 on the GPS source quantifies the isolated contribution of curvature accuracy to the sim-vs-reference gap (see Entry 012 Next list in the logbook).
 
 ---
 
 ## 5. Data Flow Diagram
 
-Here is how data flows through the project:
+Here is how data flows through the project as of the latest revision:
 
-    [iRacing .ibt file]
-         |
-         v
-    [PI Toolbox Pro] → exports to Excel (.xls)
-         |
-         v
-    [import_reference_lap.m]
-         |  - reads Excel Sheet 2 ("Channel Data")
-         |  - converts units (km/h → m/s)
-         |  - zeros time
+    [iRacing .ibt file]                             [.pxt workbook]
+         |                                               |
+         v                                               v
+    [PI Toolbox Pro] → exports to Excel (.xls)    [extract_pxt.py]
+         |                                               |  - pulls GPSMapStream
+         v                                               |  - writes pxt_centerline.csv
+    [import_reference_lap.m]                             |
+         |  - reads Excel Sheet 2 ("Channel Data")       |
+         |  - converts units (km/h → m/s)                |
+         |  - zeros time                                 |
          |  - computes distance via trapezoidal integration
-         |  - saves 'ref' struct to reference_lap.mat
-         |
-         v
-    [build_track.m]
-         |  - reads 'ref' struct from workspace
-         |  - computes curvature: κ = a_lat / v²
-         |  - smooths with 50 m moving average
-         |  - resamples to 1 m uniform distance spacing
-         |  - saves 'track' struct to n24_track.mat
-         |
-         v
-    [amg_gt3_params.m]
-         |  - loads 'car' struct with all vehicle parameters
-         |
-         v
-    [lap_sim_v01.m] ← THIS IS WHAT WE BUILD NEXT
-         |  - inputs: 'car' struct + 'track' struct
-         |  - output: simulated speed profile + lap time
-         |
-         v
-    [correlation scripts]
-         |  - compares sim output vs track.ref.* (reference data)
-         |  - produces delta plots
+         |  - saves 'ref' struct to reference_lap.mat    |
+         |                                               |
+         +-------------------+---------------------------+
+                             |
+                             v
+                    [build_track.m]           ← dispatcher (track_source = 'telemetry' | 'gps')
+                             |
+              +--------------+--------------+
+              |                             |
+              v                             v
+    [build_track_telemetry.m]      [build_track_from_gps.m]
+      - κ = a_lat / v² on             - κ from (x, y) centerline
+        racing-line data                (geometric, central-diff)
+      - 15-sample median on a_lat     - 3 m pre-smooth on (x, y)
+      - 20 m movmean on κ             - 5 m post-smooth on κ
+      - saves n24_track.mat           - saves n24_track_gps.mat
+              |                             |
+              +--------------+--------------+
+                             v
+                    [amg_gt3_params.m]
+                        - loads 'car' struct
+                             |
+                             v
+    [03_models/v01_point_mass/lap_sim_v01.m]          (constant μ, no aero)
+    [03_models/v02_aero/lap_sim_v02.m]                (+ speed-dependent downforce & drag)
+    [03_models/v03_load_sens/lap_sim_v03.m]           (+ per-tyre μ(Fz))
+    [03_models/v04_weight_transfer/lap_sim_v04.m]     (+ per-axle Fz, long. transfer, bias)
+                             |
+                             v
+    [04_correlation/diagnose_grip.m]          → spot-check v03 grip arithmetic at a chosen v
+    [04_correlation/diagnose_brake_v04.m]     → classify v04 brake peaks as SPIKE vs PLATEAU
 
 ---
 
@@ -593,7 +656,21 @@ Conversion factors used:
     F_grip_max = μ(Fz) × Fz
 
 ### Longitudinal weight transfer (v04+)
-    ΔFz = m × a_long × h_cog / wheelbase
+    ΔFz = m × a_long × h_cog / wheelbase        (sign: positive a_long means forward accel ⇒ transfer rearward)
+
+### Per-axle vertical load (v04+)
+    Fz_f(v, a_long) = weight_dist_f·m·g + aero_balance_f·F_downforce(v) − ΔFz(a_long)
+    Fz_r(v, a_long) = (1 − weight_dist_f)·m·g + (1 − aero_balance_f)·F_downforce(v) + ΔFz(a_long)
+
+### Per-axle grip (v04+)
+    μ_axle(Fz_per_tyre) = μ_0 − k · Fz_per_tyre   (per-tyre formula; feed Fz_axle/2)
+    F_grip_axle = 2 · μ_axle · (Fz_axle / 2)      (equivalently: μ_axle · Fz_axle)
+
+### Friction circle (v04+)
+    F_x_max_axle = sqrt(max(F_grip_axle² − F_y_axle², 0))
+
+### Brake-bias constraint (v04+)
+    a_brake = min( F_x_f_max / bias_f ,  F_x_r_max / (1 − bias_f) ) / m
 
 ### Trapezoidal integration (distance from speed)
     ds(i) = 0.5 × (v(i) + v(i+1)) × (t(i+1) - t(i))
@@ -602,3 +679,109 @@ Conversion factors used:
 ### Lap time from speed profile
     dt(i) = ds / v(i)
     lap_time = sum of all dt(i)
+
+---
+
+## 8. v03 — Tyre Load Sensitivity
+
+File: `03_models/v03_load_sens/lap_sim_v03.m`
+
+### 8.1 What v03 adds to v02
+
+v02 produced a speed-dependent grip budget: downforce increases `Fz`, and at constant μ the grip-force budget `F_grip = μ · Fz` grows proportionally with `Fz`. Real tyres do not behave that way. As `Fz` increases, the per-tyre friction coefficient `μ` drops, so `F_grip(Fz)` grows *sublinearly*. v03 makes the grip coefficient a function of load so the solver sees the real non-linearity.
+
+### 8.2 The model
+
+Linear load sensitivity, identical on all four tyres at this fidelity:
+
+    μ(Fz_per_tyre) = μ_0 − k · Fz_per_tyre
+
+with μ_0 = 1.85 and k = 5.5 × 10⁻⁵ [1/N]. The coefficients are chosen so that at the static per-tyre load (~3300 N) the grip coefficient evaluates to 1.60, matching the constant μ used in v01 and v02. At the heavier loaded outside tyre in a high-speed corner (Fz ≈ 7000 N) μ drops to about 1.47, and at a lightly loaded inside tyre (Fz ≈ 2500 N) μ rises to about 1.71. Section 2.5 walks through these numbers in more detail.
+
+### 8.3 Per-tyre, not per-axle
+
+This is the single most important implementation detail in v03 and was the seed of one of the v04 bugs diagnosed in Entry 011. The formula is calibrated for per-tyre load, i.e. `Fz_per_tyre = Fz_total / 4`. If per-axle load (`Fz_total / 2`) is passed into the same formula by mistake, μ drops twice as fast with load as it should, which is a ~20% error at high-aero speeds and enough to throw the whole lap profile off. v03 only sees a single total vertical load (no axle split yet), so this is safe here, but the same function is reused in v04 and had to be fed per-tyre loads there too.
+
+### 8.4 Expected result
+
+v03 was the first version that felt quantitatively sensible on N24: 7:46.382, approximately 1.0% faster than the reference lap. That small residual gap is consistent with a QSS optimum running slightly faster than a human-driven reference, and sets up v04 as a test of whether adding longitudinal weight transfer closes or widens the gap (it widens it, as expected, because weight transfer always *reduces* combined grip).
+
+---
+
+## 9. v04 — Longitudinal Weight Transfer and Per-Axle Grip
+
+File: `03_models/v04_weight_transfer/lap_sim_v04.m`
+Helper: the script's local `get_axle_grip_v04(v, dFz_long, car)` function (single source of truth for per-axle Fz/μ/F_grip).
+
+### 9.1 What v04 adds to v03
+
+v03 treated the whole car as a point mass: one total vertical load, one friction circle. v04 splits the vertical load between a front axle and a rear axle, recomputes μ per-axle using the load-sensitive formula, and lets longitudinal acceleration shift load between the two axles. This unlocks three physically important effects: the brake-bias constraint (rear can lock before front), the RWD traction limit under acceleration (only the rear axle drives), and the combined-grip penalty of weight transfer (loading one axle more than its optimum never recovers what unloading the other axle loses, thanks to tyre load sensitivity).
+
+### 9.2 The per-axle vertical loads
+
+At any speed `v` and longitudinal acceleration `a_long` (positive = accelerating):
+
+    Fz_f = weight_dist_f · m · g   +   aero_balance_f · F_downforce(v)   −   ΔFz
+    Fz_r = (1 − weight_dist_f) · m · g   +   (1 − aero_balance_f) · F_downforce(v)   +   ΔFz
+    ΔFz = m · a_long · h_cog / wheelbase
+
+The static split comes from `car.weight_dist_f = 0.46`; the aero split comes from `car.aero_balance_f = 0.43`. Those two numbers are separate parameters on purpose — the rear-biased downforce distribution is a setup choice independent of where the engine sits. Using the hard-coded 50/50 split in an earlier v04 draft was bug #6 in the list from Entry 011.
+
+### 9.3 Per-axle grip and the friction circle
+
+Per-tyre load is `Fz_axle / 2`; the load-sensitivity formula `μ(Fz_per_tyre) = μ_0 − k · Fz_per_tyre` is evaluated on each axle's per-tyre load; the axle's total lateral grip budget is `F_grip_axle = μ_axle · Fz_axle`. In any pass where both longitudinal and lateral forces are in play, the axle's available longitudinal force is what the friction circle leaves after the lateral demand has been spent:
+
+    F_x_max_axle = sqrt(max(F_grip_axle² − F_y_axle², 0))
+
+This is the classical friction-ellipse approximation treated as a circle; it is a standard QSS simplification and is correct provided the tyre's `F_x` and `F_y` saturation loads are similar, which they are for modern slicks.
+
+### 9.4 Brake-bias constraint
+
+Both axles brake simultaneously, and the driver cannot send more brake torque to one axle than its tyres can absorb without locking. With a fixed bias `bias_f`:
+
+    F_brake_total ≤ F_x_f_max / bias_f      (front limit)
+    F_brake_total ≤ F_x_r_max / (1 − bias_f) (rear limit)
+    a_brake = min(F_brake_total) / m
+
+The `min` is key. If the rear is unloaded (high speed, high forward weight transfer), `F_x_r_max` is small and the rear branch binds; the *front* is underused even though it has headroom, because the driver can't redirect rear-bound brake pressure to the front mid-corner. This is the mechanism by which bias sets peak braking — we see exactly this pattern at the end of Döttinger in Entry 014, where the rear binds at ≈2.6 g with the front still holding headroom.
+
+### 9.5 RWD traction limit under acceleration
+
+Only the rear axle drives. In the forward pass the longitudinal limit is whatever the rear friction circle permits after cornering:
+
+    F_x_drive_max = sqrt(max(F_grip_r² − F_y_r², 0))
+    a_drive_max   = F_x_drive_max / m
+
+This is separate from the engine force; the solver takes `min(engine-force-at-this-gear, a_drive_max·m)` as the drive force actually delivered to the ground. At low speed traction usually binds; at high speed engine power binds.
+
+### 9.6 Continuity iteration
+
+v04 has an implicit coupling: `a_long` sets `ΔFz`, `ΔFz` sets per-axle grip, and per-axle grip sets the maximum achievable `a_long`. The script handles this with a small fixed-point iteration around the forward/backward passes, damped 50/50 and capped at ten iterations with a 0.01 m/s² tolerance. Convergence in one or two iterations is typical on the N24 trace.
+
+### 9.7 Validation state
+
+v04's validated result is 7:50.704, 20.6 s faster than the reference (−4.20%). That puts the charter target (±1%) out of reach until (a) the curvature source is improved — the GPS track lowers the optimism directly — and (b) setup parameters (`h_cog`, `brake_bias_f`) are calibrated against the reference lap. The weight-transfer cost v04 − v03 is +4.32 s, squarely inside the 3–8 s textbook expectation for a GT3 at this track, which is the strongest internal check that the new physics is behaving. Entry 014 in the logbook records the end-to-end verification, including the brake-peak investigation that resolved Entry 012's 3.65 g concern to a real-world 2.60 g.
+
+### 9.8 What v04 is *not* yet
+
+v04 is still a point-mass model in one respect: it has no lateral weight transfer between inside and outside tyres, because a point mass has no track width. That effect is the v05 stretch goal. Until then, v04's per-axle grip is the grip of an average tyre under the axle's average load — in a fast corner the outside tyre is overloaded relative to this average and the inside is underloaded, and those two errors do not exactly cancel because load sensitivity is non-linear.
+
+---
+
+## 10. Correlation and Diagnostics
+
+Folder: `04_correlation/`
+
+### 10.1 diagnose_grip.m
+
+A small focused script that re-evaluates the v03 grip chain at a user-specified speed and reports every intermediate number (`Fz_total`, `Fz_per_tyre`, `μ`, `F_grip`, `a_lat_max`). It exists to catch bookkeeping errors in the grip arithmetic without having to run a whole lap — when v04 was first built, this script was used as the regression check at 200 km/h to verify that v04 collapses to v03 when `dFz_long = 0` (which it does, to rounding, per Entry 012).
+
+### 10.2 diagnose_brake_v04.m
+
+A classifier for v04's peak brake deceleration. Produces: a distribution summary of `a_brake` across the lap (percentiles, fraction above chosen thresholds), a connected-run analysis that separates isolated peaks from sustained plateaus, a per-axle breakdown at the top-N outliers (which axle bound, what `Fz`, `μ`, and `F_grip` were at that point), two scatter plots, and a `brake_diag` struct returned to the workspace for downstream use.
+
+The script encodes a specific piece of race-engineering reasoning: if the peak is a single isolated point with random axle-binding, it is almost certainly an iteration artefact (numerical), while if it is a sustained run where the same axle keeps binding at similar `v` and `κ`, it is a physics artefact (usually a missing wheel-lift ceiling). The Entry 013 writeup explains the two-axis logic in detail; Entry 014 walks through the first real run against the v04 output and closes the peak-brake concern.
+
+### 10.3 Correlation conventions
+
+Correlation plots always use the same distance axis for simulated and reference speeds (the `track.dist` on whichever source built the track). Deltas are reported as Δt (cumulative) and Δv (point-by-point). Sector-by-sector breakdowns follow the N24 sector conventions used by the race teams rather than arbitrary length windows, so the reports read naturally against in-car radio calls.

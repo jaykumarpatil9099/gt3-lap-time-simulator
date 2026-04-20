@@ -515,87 +515,12 @@ sim04.meta.bias_f   = car.brakes.bias_f;
 sim04.meta.created  = datestr(now, 'yyyy-mm-dd HH:MM');
 
 %% ========================================================================
-%  10. COMPARISON PLOTS
+%  10. PLOTS — STRIPPED 2026-04-19
 %  ========================================================================
-
-figure('Name', 'v04 Results — Speed + Version Comparison', ...
-       'NumberTitle', 'off', 'Position', [60, 60, 1400, 900]);
-
-% --- Plot 1: Speed vs reference (all versions overlaid) ---
-subplot(3,1,1);
-hold on;
-plot(track.dist/1000, track.ref.v * 3.6, 'b', 'LineWidth', 1.2, ...
-     'DisplayName', 'Reference (iRacing)');
-if has_v02
-    plot(track.dist/1000, sim02.v * 3.6, 'Color', [1.0 0.6 0.6], ...
-         'LineWidth', 0.5, 'DisplayName', sprintf('v02 %.1fs', sim02.lap_time));
-end
-if has_v03
-    plot(track.dist/1000, sim03.v * 3.6, 'Color', [0.8 0.2 0.2], ...
-         'LineWidth', 0.6, 'DisplayName', sprintf('v03 %.1fs', sim03.lap_time));
-end
-plot(track.dist/1000, v_sim * 3.6, 'k', 'LineWidth', 1.0, ...
-     'DisplayName', sprintf('v04 %.1fs', lap_time));
-hold off;
-ylabel('Speed [km/h]');
-title(sprintf('v04 %d:%06.3f  |  Δ ref: %+.1f s (%+.2f%%)', ...
-      lap_min, lap_sec, lap_time - track.meta.ref_laptime, ...
-      (lap_time - track.meta.ref_laptime)/track.meta.ref_laptime*100));
-legend('Location', 'best');
-grid on;
-xlim([0, track.length/1000]);
-ylim([0, 320]);
-
-% --- Plot 2: Speed delta v04 vs reference ---
-subplot(3,1,2);
-delta_v = v_sim * 3.6 - track.ref.v * 3.6;
-hold on;
-area(track.dist/1000, max(delta_v, 0), 'FaceColor', [0.8 0.2 0.2], ...
-     'FaceAlpha', 0.4, 'EdgeColor', 'none', 'DisplayName', 'Sim faster');
-area(track.dist/1000, min(delta_v, 0), 'FaceColor', [0.2 0.2 0.8], ...
-     'FaceAlpha', 0.4, 'EdgeColor', 'none', 'DisplayName', 'Sim slower');
-hold off;
-ylabel('\Delta Speed [km/h]');
-legend('Location', 'best');
-grid on;
-xlim([0, track.length/1000]);
-title('Speed Delta: v04 minus Reference');
-
-% --- Plot 3: Per-axle loads through forward pass ---
-subplot(3,1,3);
-hold on;
-plot(track.dist/1000, Fz_f_forward/1000, 'b', 'LineWidth', 0.8, ...
-     'DisplayName', 'Fz front (fwd pass)');
-plot(track.dist/1000, Fz_r_forward/1000, 'r', 'LineWidth', 0.8, ...
-     'DisplayName', 'Fz rear (fwd pass)');
-hold off;
-xlabel('Distance [km]');
-ylabel('Axle normal load [kN]');
-legend('Location', 'best');
-grid on;
-xlim([0, track.length/1000]);
-title('Per-axle normal loads (with aero + longitudinal transfer)');
-
-% --- Bonus figure: weight-transfer diagnostics ---
-figure('Name', 'v04 Diagnostics — Weight Transfer', ...
-       'NumberTitle', 'off', 'Position', [120, 120, 1300, 500]);
-
-subplot(1,2,1);
-plot(track.dist/1000, a_long_forward / g_acc, 'g', 'LineWidth', 0.8); hold on;
-plot(track.dist/1000, -a_brake_record / g_acc, 'm', 'LineWidth', 0.8); hold off;
-xlabel('Distance [km]');
-ylabel('Long. accel [g]');
-title('Longitudinal g (accel positive, brake negative)');
-legend('Accel', 'Brake', 'Location', 'best');
-grid on;
-
-subplot(1,2,2);
-plot(track.dist/1000, dFz_forward/1000, 'g', 'LineWidth', 0.8); hold on;
-plot(track.dist/1000, dFz_backward/1000, 'm', 'LineWidth', 0.8); hold off;
-xlabel('Distance [km]');
-ylabel('\DeltaFz_{long} [kN]');
-title('Longitudinal weight transfer (fwd: + to rear, bwd: - to front)');
-legend('Accel transfer', 'Brake transfer', 'Location', 'best');
-grid on;
+%  Comparison plots + weight-transfer bonus figure removed to keep run
+%  output lean during calibration. Everything needed to replot lives in
+%  sim04 (v, v_forward, v_backward, v_corner, a_long, a_brake, dFz_*,
+%  Fz_f_forward, Fz_r_forward). For focused brake-spike inspection use
+%  04_correlation/diagnose_brake_v04.m.
 
 fprintf('\n=== v04 (rewritten) Simulation Complete ===\n\n');

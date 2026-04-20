@@ -1,229 +1,71 @@
 %% build_track.m
-%  Generates the track data struct from the reference lap telemetry.
-%  The simulator needs: distance, curvature, and (later) elevation at
-%  every point along the track.
+%  Track-data DISPATCHER. Builds the 'track' struct from one of two sources:
 %
-%  PHYSICS:
-%    For circular motion:  a_lat = v^2 / R
-%    Curvature kappa = 1/R = a_lat / v^2
-%    Where a_lat is in [m/s^2] and v is in [m/s].
+%    track_source = 'telemetry'  (default) — derive curvature from
+%        reference-lap a_lat/v^2 telemetry. The resulting centerline is the
+%        driver's RACING LINE, not the geometric centerline. See
+%        build_track_telemetry.m for details.
 %
-%  INPUT:  'ref' struct must be in workspace (run import_reference_lap first)
-%  OUTPUT: 'track' struct in workspace + saved .mat file
+%    track_source = 'gps'                   — derive curvature from the
+%        geometric GPS centerline extracted from the .pxt file. No speed
+%        signal, no lateral-g noise: pure geometry. See
+%        build_track_from_gps.m for details.
 %
-%  Author:  Jaykumar Patil
-%  Created: 2026-04-16
+%  WHY A DISPATCHER
+%  ----------------
+%  Both source scripts produce a 'track' struct with the SAME top-level
+%  fields (dist, kappa, ds, n, length, ref.*, meta.*). The GPS path adds
+%  bonus fields (x, y, z, lat, lon, kappa_signed) that the v01..v04 solvers
+%  ignore because MATLAB structs are free-form. Keeping a single entry
+%  point means every solver, every correlation script, and the logbook can
+%  say "call build_track" without worrying about which underlying script
+%  ran. The handshake is the variable 'track_source' in the workspace.
 %
-%  USAGE:
+%  WORKSPACE INPUT
+%  ---------------
+%    ref          — from import_reference_lap.m (required for 'telemetry';
+%                   used only for correlation channels in 'gps')
+%    track_source — 'telemetry' (default) or 'gps'
+%
+%  WORKSPACE OUTPUT
+%  ----------------
+%    track        — the assembled struct
+%    (also saved to 02_data/track/n24_track.mat [telemetry] or
+%                   02_data/track/n24_track_gps.mat [gps])
+%
+%  USAGE
 %    >> startup_project
 %    >> import_reference_lap
-%    >> build_track
+%    >> build_track                        % uses telemetry (default)
+%
+%    >> track_source = 'gps';
+%    >> build_track                        % uses GPS centerline
+%
+%  Author:  Jaykumar Patil
+%  Created: 2026-04-20  (replaces the pre-split monolithic build_track.m)
 
-%% ========================================================================
-%  1. CHECK THAT REFERENCE DATA EXISTS
-%  ========================================================================
+%% ------------------------------------------------------------------------
+%  Resolve the source. Default to 'telemetry' so existing run scripts keep
+%  working without modification.
+%  ------------------------------------------------------------------------
 
-if ~exist('ref', 'var')
-    error(['Reference lap data not found in workspace. ' ...
-           'Run import_reference_lap.m first.']);
+if ~exist('track_source', 'var') || isempty(track_source)
+    track_source = 'telemetry';
 end
 
-fprintf('\n=== Building Track Data ===\n');
+track_source = lower(string(track_source));
 
-%% ========================================================================
-%  2. COMPUTE RAW CURVATURE FROM TELEMETRY
-%  ========================================================================
-%  kappa = a_lat / v^2
-%
-%  Two issues we need to handle:
-%
-%  Issue 1: At low speed, v^2 is very small, so curvature blows up to
-%  infinity even for tiny lateral accelerations. This is noise, not real
-%  curvature. We clamp the minimum speed to avoid division-by-nearly-zero.
-%
-%  Issue 2: The raw lateral g signal from iRacing is noisy (100 Hz sensor
-%  noise + kerb vibrations + bumps). If we use it directly, our curvature
-%  profile will be spiky and the simulator will produce unrealistic speed
-%  oscillations. We need to smooth it.
+fprintf('\n=== build_track dispatcher ===\n');
+fprintf('  track_source = ''%s''\n', track_source);
 
-g = 9.81;  % [m/s^2]
+switch track_source
+    case "telemetry"
+        run(fullfile('02_data', 'track', 'build_track_telemetry.m'));
 
-% ---- STAGE 1: Median-filter the lateral g BEFORE computing curvature ----
-%  The raw lateral g from iRacing includes transient spikes from kerb hits,
-%  bumps, and suspension transients. These are NOT steady-state cornering.
-%  A QSS sim only cares about steady-state.
-%
-%  MEDIAN FILTER: replaces each value with the median of its neighbors.
-%  Key property: it kills spikes (outliers) while preserving step edges
-%  (real corner entries/exits). This is exactly what we need — a 4.4 g
-%  kerb spike gets killed, but a real jump from 0 g to 1.5 g at corner
-%  entry is preserved.
-%
-%  Window: 15 samples (~7.5 m at 0.5 m spacing). Wide enough to span
-%  a kerb hit (~1-3 m), narrow enough to preserve real corner shapes.
+    case "gps"
+        run(fullfile('02_data', 'track', 'build_track_from_gps.m'));
 
-a_lat_raw_ms2 = ref.g_lat * g;   % [m/s^2]
-
-median_window = 15;  % samples (~7.5 m)
-if mod(median_window, 2) == 0
-    median_window = median_window + 1;
+    otherwise
+        error(['Unknown track_source = ''%s''. Valid options: ' ...
+               '''telemetry'' (default) or ''gps''.'], track_source);
 end
-
-a_lat_filtered = medfilt1(a_lat_raw_ms2, median_window);
-
-fprintf('Median filter applied: window = %d samples\n', median_window);
-fprintf('  Raw g_lat range:      %.2f to %.2f g\n', min(ref.g_lat), max(ref.g_lat));
-fprintf('  Filtered g_lat range: %.2f to %.2f g\n', ...
-        min(a_lat_filtered/g), max(a_lat_filtered/g));
-
-% ---- Compute curvature from FILTERED lateral g ----
-v_clamped = max(ref.v, 10);    % [m/s] minimum 10 m/s
-kappa_raw = a_lat_filtered ./ (v_clamped.^2);   % [1/m]
-
-fprintf('Curvature (after median filter). Range: %.6f to %.6f [1/m]\n', ...
-        min(kappa_raw), max(kappa_raw));
-
-%% ========================================================================
-%  3. SMOOTH THE CURVATURE (Stage 2 — gentle moving average)
-%  ========================================================================
-%  After the median filter removed spikes, we apply a SMALLER moving
-%  average (20 m instead of 50 m) for final cleanup. This preserves
-%  much more of the real corner peaks.
-%
-%  PREVIOUS ISSUE: 50 m window only preserved 66% of peak curvature.
-%  The tightest corner went from R=13.9 m to R=21.2 m — a massive error
-%  that made the sim ~36 seconds too fast.
-%
-%  With the two-stage approach (median + 20 m average), we expect to
-%  preserve 85-90% of peak curvature.
-
-ds_mean = ref.dist(end) / (length(ref.dist) - 1);   % [m/sample]
-fprintf('Mean sample spacing: %.3f m\n', ds_mean);
-
-smooth_window_m = 20;                                 % [m] (was 50 m)
-smooth_window_samples = round(smooth_window_m / ds_mean);
-
-if mod(smooth_window_samples, 2) == 0
-    smooth_window_samples = smooth_window_samples + 1;
-end
-
-fprintf('Moving average window: %d samples (~%.0f m)\n', ...
-        smooth_window_samples, smooth_window_samples * ds_mean);
-
-kappa_smooth = movmean(kappa_raw, smooth_window_samples);
-
-fprintf('Final curvature range: %.6f to %.6f [1/m]\n', ...
-        min(kappa_smooth), max(kappa_smooth));
-fprintf('Peak preservation: %.0f%% (target: >85%%)\n', ...
-        max(abs(kappa_smooth)) / max(abs(a_lat_raw_ms2 ./ (v_clamped.^2))) * 100);
-
-%% ========================================================================
-%  4. RESAMPLE TO UNIFORM DISTANCE SPACING
-%  ========================================================================
-%  The raw telemetry is sampled at uniform TIME (100 Hz), but non-uniform
-%  DISTANCE (because speed varies). The simulator works in distance-domain
-%  (it steps along the track meter by meter), so we resample the curvature
-%  to uniform distance spacing.
-%
-%  We choose 1 m spacing: fine enough to capture corner shapes, coarse
-%  enough to keep the sim fast (~25,000 points for the full lap).
-
-ds_target = 1.0;   % [m] target spacing
-dist_uniform = (0 : ds_target : ref.dist(end))';   % uniform distance vector
-
-% Interpolate curvature onto the uniform grid
-kappa_uniform = interp1(ref.dist, kappa_smooth, dist_uniform, 'linear', 'extrap');
-
-% Also interpolate reference speed and other channels for later correlation
-v_ref_uniform     = interp1(ref.dist, ref.v,       dist_uniform, 'linear', 'extrap');
-g_lat_uniform     = interp1(ref.dist, ref.g_lat,   dist_uniform, 'linear', 'extrap');
-g_long_uniform    = interp1(ref.dist, ref.g_long,  dist_uniform, 'linear', 'extrap');
-gear_uniform      = interp1(ref.dist, ref.gear,    dist_uniform, 'nearest', 'extrap');
-throttle_uniform  = interp1(ref.dist, ref.throttle, dist_uniform, 'linear', 'extrap');
-brake_uniform     = interp1(ref.dist, ref.brake,   dist_uniform, 'linear', 'extrap');
-
-fprintf('Resampled to %.1f m spacing: %d points\n', ds_target, length(dist_uniform));
-
-%% ========================================================================
-%  5. BUILD THE TRACK STRUCT
-%  ========================================================================
-
-track = struct();
-
-% Track geometry (what the simulator uses as input)
-track.dist  = dist_uniform;          % [m]   distance along track
-track.kappa = abs(kappa_uniform);    % [1/m] unsigned curvature (direction doesn't matter for QSS)
-track.ds    = ds_target;             % [m]   sample spacing
-track.n     = length(dist_uniform);  % [-]   number of points
-track.length = ref.dist(end);        % [m]   total track length
-
-% Reference data resampled to track grid (for correlation plots)
-track.ref.v         = v_ref_uniform;       % [m/s]
-track.ref.g_lat     = g_lat_uniform;       % [g]
-track.ref.g_long    = g_long_uniform;      % [g]
-track.ref.gear      = gear_uniform;        % [-]
-track.ref.throttle  = throttle_uniform;    % [%]
-track.ref.brake     = brake_uniform;       % [%]
-
-% Metadata
-track.meta.name        = 'Nürburgring 24h (Nordschleife + GP combined)';
-track.meta.source      = 'Derived from iRacing telemetry (racing line, not geometric centerline)';
-track.meta.ref_laptime = 8*60 + 11.341;   % [s]
-track.meta.smooth_m    = smooth_window_m;
-track.meta.created     = '2026-04-16';
-track.meta.notes       = ['Curvature computed from a_lat/v^2, smoothed with ' ...
-                          num2str(smooth_window_m) ' m moving average, ' ...
-                          'resampled to ' num2str(ds_target) ' m uniform spacing. ' ...
-                          'Unsigned curvature (left/right direction discarded for QSS). ' ...
-                          'Elevation not yet included.'];
-
-%% ========================================================================
-%  6. SAVE
-%  ========================================================================
-
-outdir = fullfile(pwd, '02_data', 'track');
-outpath = fullfile(outdir, 'n24_track.mat');
-save(outpath, 'track');
-fprintf('Saved to: %s\n', outpath);
-
-%% ========================================================================
-%  7. VERIFICATION PLOTS
-%  ========================================================================
-
-figure('Name', 'Track Data Verification', 'NumberTitle', 'off', ...
-       'Position', [100, 100, 1200, 700]);
-
-% --- Curvature vs Distance ---
-subplot(3,1,1);
-plot(track.dist/1000, track.kappa, 'b', 'LineWidth', 0.8);
-ylabel('Curvature [1/m]');
-title(sprintf('Track: %s — %.3f km', track.meta.name, track.length/1000));
-grid on;
-xlim([0, track.length/1000]);
-
-% --- Equivalent corner radius vs Distance ---
-%  Radius = 1/kappa. More intuitive: "this is a 50 m radius corner".
-%  Clamp to max 2000 m to avoid infinity on straights.
-subplot(3,1,2);
-radius = min(1 ./ max(track.kappa, 1e-6), 2000);
-plot(track.dist/1000, radius, 'r', 'LineWidth', 0.8);
-ylabel('Corner radius [m]');
-grid on;
-xlim([0, track.length/1000]);
-ylim([0, 2000]);
-
-% --- Reference speed overlaid with curvature ---
-subplot(3,1,3);
-yyaxis left;
-plot(track.dist/1000, track.ref.v * 3.6, 'b', 'LineWidth', 0.8);
-ylabel('Speed [km/h]');
-ylim([0, 300]);
-yyaxis right;
-plot(track.dist/1000, track.kappa, 'Color', [0.8 0 0 0.4], 'LineWidth', 0.5);
-ylabel('Curvature [1/m]');
-xlabel('Distance [km]');
-grid on;
-xlim([0, track.length/1000]);
-title('Speed vs Curvature — high curvature should align with low speed');
-
-fprintf('\n=== Track Build Complete ===\n\n');

@@ -12,6 +12,85 @@
 
 ---
 
+## Entry 015 — 2026-04-20 — Track-source dispatcher wired; portfolio docs consolidated
+
+**Phase:** 4 (Model build — curvature-source experiment unblocked)
+
+**Done:**
+- Refactored `02_data/track/build_track.m` from a monolithic telemetry-only script into a one-screen DISPATCHER that reads workspace `track_source` (default `'telemetry'`) and calls one of two builders. Original logic preserved verbatim in new file `build_track_telemetry.m`. GPS builder `build_track_from_gps.m` already existed from Entry 010's centerline work; the dispatcher now selects between them without any edits in the solver scripts.
+- Deleted `02_data/track/gps_centerline.csv` (stale 2-column orphan from an earlier extraction attempt; not referenced anywhere). Canonical GPS input is `02_data/track/pxt_centerline.csv` (11 columns, 950 kB, dated 2026-04-18) — which is what `build_track_from_gps.m` already points at. The earlier claim that a filename mismatch existed in the GPS builder was wrong; verified against disk.
+- Deleted `00_admin/v04_github_issue.md`. Entry 011's v04 bug list is preserved in the logbook (single source of truth); the parallel `*_github_issue.md` file was dead weight from before the "no issues, logbook only" convention landed.
+- Rewrote `README.md` from "Phase 0 — project setup" (stale since mid-April) to reflect Phase 4: v01..v04 built, current v04 lap time 7:50.704, both track sources documented with a run-sequence snippet, working-agreement paragraph aligned to the logbook-as-single-source rule.
+- Overhauled `01_references/technical_reference.md`: (a) §4.4 rewritten around the two-stage curvature filter (median on `a_lat`, 20 m movmean on `κ`) replacing the stale single-stage 50 m MA narrative; (b) new §4A documenting the GPS centerline source — geometric κ formula, 3 m pre-smooth on (x, y), 5 m post-smooth on κ, the ref-lap rescale from racing-line to centerline length; (c) new §8 explaining v03 load sensitivity, per-tyre (not per-axle) calibration of μ(Fz); (d) new §9 explaining v04 per-axle Fz, friction circle, brake-bias `min` constraint, RWD traction limit, continuity iteration, +4.32 s weight-transfer cost; (e) new §10 documenting `diagnose_grip.m` and `diagnose_brake_v04.m`; (f) §7 Key Equations extended with per-axle load, friction-circle, and bias-min formulas; (g) §5 data-flow diagram refreshed to show the dispatcher, both builders, and all four solvers instead of the pre-v01 "← THIS IS WHAT WE BUILD NEXT" marker.
+
+**Retraction:** Entry 014's "(Deferred, low priority) Add a CLEAN verdict to `diagnose_brake_v04.m`" Next item is withdrawn. It was an improvised scope extension rather than a charter-driven next step. The script's SPIKE-trivially verdict is already interpretable given its printed distribution block; a separate CLEAN branch would be cosmetic and is not on the path to the ±1% charter target. Drop from the active backlog.
+
+**Found:**
+- Disk audit of `02_data/track/` after cleanup: `build_track.m` (dispatcher, ~40 lines), `build_track_telemetry.m` (~230 lines, telemetry path), `build_track_from_gps.m` (~280 lines, GPS path), `pxt_centerline.csv` (950 kB, canonical), `extract_pxt.py`, `Nurburgring Combined Track.pxt`, `pxt_curvature_comparison.png`, `n24_track.mat` (832 kB, current telemetry build). `n24_track_gps.mat` not yet on disk — the GPS builder has not been run end-to-end with the dispatcher in the loop yet.
+- Repo-wide grep for `gps_centerline`: zero matches after deletion, confirming the orphan was nowhere referenced.
+
+**Think:**
+- The dispatcher is deliberately dumb — one `switch` block, default to the legacy source so no existing run script breaks. The two builders stand on their own and can be read independently; anyone opening the repo cold sees "build_track.m is the entry point, and it dispatches to one of two clearly named files" which is the right mental model for a race engineer reviewing it.
+- The README and technical_reference were both drifting into "set during Phase 0 and never revisited" territory. Letting that continue would have made the repo read like someone else's abandoned project on a portfolio review. Keeping them in lockstep with the logbook is part of the working agreement now; every future commit that changes physics or structure touches the matching doc in the same commit.
+- Entry 014's improvised CLEAN-verdict item is a useful lesson: closing a diagnostic with "could also add X" is how backlogs accumulate work that is never actually justified. Future entries will either promote a Next-list item to charter-scope work or not write it down at all.
+
+**Next:**
+- Run `build_track` with `track_source = 'gps'` end-to-end (produces `n24_track_gps.mat`), then re-run `lap_sim_v02`, `v03`, `v04` on the GPS track. Expected: tighter peak curvature → lower cornering speed cap → slower lap than on the telemetry source. Delta vs telemetry quantifies the isolated contribution of curvature accuracy to the remaining 20.6 s gap.
+- Compare v04 results on both sources side-by-side; decide whether to freeze the GPS source as the default for the calibration phase.
+- Begin calibration sweep: `h_cog` ∈ [0.40, 0.52] m and `brake_bias_f` ∈ [0.53, 0.61], minimising lap-time delta and sector-by-sector Δspeed against the reference lap. Record each sweep as a one-page report under `06_reports/`.
+
+---
+
+## Entry 014 — 2026-04-19 — v04 brake-spike resolved: max 2.60 g, no fix needed
+
+**Phase:** 4 (Model build — v04 verification closed)
+
+**Done:**
+- Ran `diagnose_brake_v04` on a fresh chain (`startup_project → import_reference_lap → build_track → lap_sim_v01…v04 → diagnose_brake_v04`). Classifier returned SPIKE trivially (zero points above its 3.0 g threshold).
+- Max `a_brake = 2.603 g` at dist 24.405 km, v = 289.2 km/h. Entry-012's 3.65 g does not reproduce in the current workspace state.
+
+**Found:**
+- Distribution: 1629 pts (6.5%) above 2.5 g; **zero pts above 2.8 g**. Mean `a_brake` when active (> 0.5 g) = 1.87 g. All numbers inside the realistic GT3 envelope for N24.
+- Peak location 24.405 km into the lap at 289 km/h = plausibly the end-of-Döttinger braking zone into Antoniusbuche — the hardest brake application on the lap.
+- Top-8 outliers all REAR-bound in the bias-min. Hand check at the peak: `Fz_f = 18.09 kN, Fz_r = 9.30 kN` (≈ 5 kN transfer forward); load-sensitive μ flips (`μ_f = 1.353, μ_r = 1.594`); `F_grip_f = 24.48 kN, F_grip_r = 14.82 kN`; bias-min branches are `44.5 kN` (front) vs `32.9 kN` (rear); rear binds; `a = 32900/1300 ≈ 2.58 g` → matches the 2.60 g the sim reports to within rounding. **Solver is internally consistent.**
+
+**Think:**
+- Entry 012's 3.65 g came from a workspace state I can't reconstruct post-hoc. Likely causes: a stale variable from an earlier session, a different `car.h_cog` or `car.brakes.bias_f` in `amg_gt3_params.m` at that moment, or slightly different track-filter settings. The *reproducible* state is clean, so no fix gets applied. `diagnose_brake_v04` is now standing instrumentation; if 3.65 g returns, we'll catch it the same way.
+- SPIKE-verdict semantics: the classifier triggered on max_run = 0 and pct_outliers = 0.0%, which satisfies "SPIKE" trivially but really means "nothing above threshold — peak is already realistic". Could add a dedicated CLEAN verdict in a future pass; not urgent.
+- Rear-bound at high speed + low lateral is the *correct* physics: dynamic weight transfer unloads the rear, its friction circle shrinks, and the bias-min formula picks the rear branch accordingly. Observed pattern = expected pattern.
+- v04 is now functionally and physically validated end-to-end: correct lap time (7:50.704, +4.32 s vs v03), realistic brake peak (2.60 g), regression-check against v03 at 200 km/h still passes. Unblocks the calibration phase.
+
+**Next:**
+- Wire GPS-derived centerline into `build_track.m` as optional source (`track_source = 'gps' | 'telemetry'`). Re-run v02/v03/v04 on the GPS track to quantify curvature's isolated contribution to the remaining 20.6 s gap to reference.
+- Begin calibration: sweep `h_cog` ∈ [0.40, 0.52] m and `brake_bias_f` ∈ [0.53, 0.61] against reference lap, minimising lap-time delta and sector-by-sector Δspeed.
+- (Deferred, low priority) Add a CLEAN verdict to `diagnose_brake_v04.m` for when `max(a_brake_g) < 2.8 g`.
+
+---
+
+## Entry 013 — 2026-04-19 — Brake-spike diagnostic added; v04 plot blocks stripped
+
+**Phase:** 4 (Model build — v04 verification / instrumentation)
+
+**Done:**
+- Removed the two plot blocks (Section 10 comparison figure + weight-transfer bonus figure) from `03_models/v04_weight_transfer/lap_sim_v04.m`. All numerical outputs preserved in the `sim04` struct, so replotting stays one helper call away if ever needed.
+- Added `04_correlation/diagnose_brake_v04.m`: a focused classifier that decides whether the 3.65 g peak flagged in Entry 012 is a SPIKE (isolated iteration artefact) or a PLATEAU (systemic bias-constraint pathology). Output: printed distribution stats, connected-run analysis, per-axle breakdown at the top-8 outliers, two scatter plots, and a `brake_diag` struct.
+
+**Found:**
+- (Pending run — to be filled in when the diagnostic output is pasted back.)
+
+**Think:**
+- The spike-vs-plateau classification rests on two independent axes: (a) **density of outliers** along the lap, and (b) **which axle bound bites** at each outlier. Singletons with random FRONT/REAR bind are iteration noise; a connected run all biting on the same axle at similar speed/kappa is a physics artefact.
+- If SPIKE: the root cause is that Pass 3's fixed-point iterator (10 iters, 0.5/0.5 damping, 0.01 m/s² tolerance) can park the last iterate at a damped average that isn't a true fixed point. Natural fixes are a tighter iteration cap (30 iters, 0.005 m/s²) or a post-hoc physical clip at ~2.9 g. Clipping is crude but cheap and defensible for a QSS model at this fidelity level.
+- If PLATEAU: the signature is `F_x_f_max/bias_f` being the binding branch at high speed with low lateral g. In that regime the aero-boosted front Fz drives a huge front friction circle, and dividing by `bias_f ≈ 0.55` further inflates the implied F_brake_tot. The physically missing element is a **wheel-lift ceiling** on dynamic `Fz_r` — once rear load goes near zero the car's braking is reality-limited, not friction-circle-limited. Simplest fix is a hard floor `Fz_r ≥ 0.1·Fz_r_static` inside the axle-grip helper, modelling a rigid rear anti-roll floor rather than an ideal point-mass.
+- Stripping the plots from v04 was deliberate process hygiene: the calibration loops that come next (`h_cog`, `brake_bias_f` sweeps) need the run to be quiet. Diagnostic plots belong in their own scripts, not in the main sim.
+
+**Next:**
+- Run the updated v04 followed by `diagnose_brake_v04` in MATLAB; paste output for verdict-driven fix.
+- After verdict: either raise Pass-3 iter cap / clip a_brake (SPIKE) or add wheel-lift floor on Fz_r (PLATEAU).
+- Then proceed to the GPS-centerline experiment and the h_cog / brake_bias calibration sweep queued from Entry 012.
+
+---
+
 ## Entry 012 — 2026-04-19 — v04 rewrite validated: 7:50.704, weight-transfer cost +4.3 s
 
 **Phase:** 4 (Model build — v04 verified)
