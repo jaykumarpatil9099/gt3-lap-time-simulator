@@ -36,7 +36,11 @@
 
 fprintf('\n=== Building Track Data From GPS Centerline ===\n');
 
-csv_path = fullfile(pwd, '02_data', 'track', 'pxt_centerline.csv');
+% Resolve paths relative to THIS SCRIPT, not the caller's cwd, because the
+% build_track dispatcher calls us via run() which temporarily changes cwd
+% to this folder. mfilename('fullpath') is stable against that.
+script_dir = fileparts(mfilename('fullpath'));
+csv_path   = fullfile(script_dir, 'pxt_centerline.csv');
 if ~isfile(csv_path)
     error(['GPS centerline CSV not found: %s\n' ...
            'Run the .pxt → CSV extraction first.'], csv_path);
@@ -223,8 +227,8 @@ track.meta.notes = sprintf(['k computed as (x''y''''-y''x'''')/|v|^3 from GPS ' 
 %  7. SAVE
 %  ========================================================================
 
-outdir  = fullfile(pwd, '02_data', 'track');
-outpath = fullfile(outdir, 'n24_track_gps.mat');
+% Use the same script-relative path resolved in §1.
+outpath = fullfile(script_dir, 'n24_track_gps.mat');
 save(outpath, 'track');
 fprintf('Saved: %s\n', outpath);
 

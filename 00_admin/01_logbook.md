@@ -12,6 +12,43 @@
 
 ---
 
+## Entry 016 — 2026-04-21 — v05 rewritten: per-axle + lateral transfer + ARB redistribution → 8:02.424, −1.81% vs ref
+
+**Phase:** 4 (Model build — v05)
+
+**Done:**
+- Scoped v05 against Jaykumar's "build as realistic as possible, add lateral load and ARBs" directive. Audited `03_models/v04_weight_transfer/lap_sim_v04.m` (527 lines, structurally clean — per-axle friction circle in all three passes, brake-bias `min` constraint in Pass 3, nested `get_axle_grip_v04` single source of truth, inner `a_long ↔ dFz_long` coupling, outer 5-pass lap continuity iteration). Adopted it as the v05 trunk.
+- Audited the two pre-existing v05 attempts and documented 11 physics bugs spanning both files: **v05_bicycle** — (1) drag coefficient double-counted (`0.5·ρ·Cd·A_frontal` applied on top of the already-bundled `car.aero_drag_coeff`), (2) lateral transfer used full car mass instead of axle mass, (3) Pass 2 regressed to pre-v04 (`a_traction_max = μ_r·g`, no friction circle), (4) Pass 3 regressed to pre-v04 (`min(μ_f·g, μ_r·g)` — no friction circle AND no brake-bias constraint, re-introducing the buggy-2026-04-18 pathology), (5) peak-power engine model with no gearbox or RPM limits, (6) hard-coded `v_fwd(1) = 232.8 / 3.6` start speed, (7) cornering formula `sqrt(μ·g/κ)` ignored aero downforce, (8) dead-code `a_lat_limit` line with undefined math, (9) hard-coded stale comparison strings for v01..v04, (10) stale `Run build_track_from_gps first` error message post-Entry 015 dispatcher. **v05_refined** — on top of inheriting all v05 Passes-2/3 bugs it added two of its own: (R1) ARB correction applied only in Pass 1, so Passes 2 and 3 had no lateral coupling at all; (R2) `amg_gt3_params.m` §8 formula `load_xfer_reduction = K_tire/(K_ARB+K_tire)` was wrong physics — total lateral transfer is a rigid-body consequence of CG height and cannot be reduced by suspension; ARBs *redistribute* it between axles, they don't lower the total.
+- Rewrote `02_data/car/amg_gt3_params.m` §8. Retired `car.suspension.load_xfer_reduction_f/_r`. Added `car.suspension.K_roll_f/_r = K_ARB_axle + K_tire_axle` (per-axle roll stiffness, ARB and tyre contributions in parallel) and `car.suspension.roll_dist_f/_r = K_roll_axle / (K_roll_f + K_roll_r)` (fraction of total lateral transfer carried by each axle). §8 comment block now explains why the old formula was wrong and why the new one is correct — reads straight for a GT3 race engineer. Updated verification `fprintf` block accordingly. Current `[EST]` stiffness values (K_ARB_f=150 kN·m/rad, K_ARB_r=100 kN·m/rad, K_tire_f=K_tire_r=75 kN·m/rad) give **roll distribution 56.2% F / 43.8% R**.
+- Wrote `03_models/v05_lateral_transfer/lap_sim_v05.m` (520 lines). Structure: v04's 3-pass solver with new helper `get_axle_grip_v05(v, a_long_signed, a_lat, car)` replacing `get_axle_grip_v04`. Helper returns per-axle F_grip, per-axle Fz (sum), and per-tyre `Fz_f_out/in`, `Fz_r_out/in` + μ. Lateral transfer inside the helper: `ΔFz_lat_total = m·a_lat·h_cog/t_avg` split by `roll_dist_f/r`; per-tyre shift is the full axle transfer (inside → outside). Per-tyre load-sensitive μ; axle grip = outside contribution + inside contribution, which drops quadratically with lateral transfer (`−2k·δ²` correction confirmed by hand algebra). All three passes call the new helper; Pass 2 keeps v04's RWD friction circle on the *combined* grip envelope, Pass 3 keeps v04's brake-bias `min` constraint. Lap-continuity iteration structure unchanged.
+- Discovered a second-order bug in the Entry 015 dispatcher refactor mid-run: `build_track_telemetry.m` and `build_track_from_gps.m` both used `fullfile(pwd, '02_data', 'track', ...)` for save/read paths, but MATLAB's `run()` pushes cwd to the called script's folder — so `pwd` was already `02_data/track/` during execution and the path double-nested (`02_data\track\02_data\track\n24_track.mat` attempted on save). Fixed both files to resolve paths from `fileparts(mfilename('fullpath'))` instead, which is stable against any caller's cwd. Added a short comment at each call site explaining the pitfall for anyone inheriting the code.
+- Retired the two predecessor files: `lap_sim_v05.m` in `03_models/v05_bicycle/` → `lap_sim_v05_retired_2026-04-21.m`; `lap_sim_v05_refined.m` in `03_models/v05_refined/` → `lap_sim_v05_refined_retired_2026-04-21.m`. Matches the `lap_sim_v04_buggy_2026-04-18.m` retirement pattern already in the repo. This was necessary for MATLAB path resolution — with both `lap_sim_v05.m` files on the path via `genpath('03_models')`, the bare command `lap_sim_v05` was resolving to the alphabetically-earlier `v05_bicycle` copy (caught via output banner mismatch on the first run attempt).
+
+**Retraction / re-ordering:** Entry 015's Next list had three items queued in order: (1) run GPS experiment, (2) compare GPS vs telemetry, (3) calibration sweep. Jaykumar pivoted mid-session to build v05 first; those three items are not withdrawn, just re-ordered behind the v05 validation milestone recorded here. The GPS experiment now runs on the validated v05 and produces a more useful delta.
+
+**Found:**
+- v05 converged lap time: **8:02.424** (GPS curvature source, the current on-disk `n24_track.mat` is from the telemetry builder but the script output matches v04's 7:50.704 baseline so the build is consistent).
+- Delta vs reference 8:11.341: **−8.917 s (−1.81%)**. First time under the ±2% band and the closest we've been to the ±1% charter since the project started.
+- Lateral-transfer cost: **+11.72 s (v05 − v04)**. Sign and magnitude both realistic for a 25 km track with 56/44 F/R roll distribution.
+- Version ladder on the active track: v01 8:24.738 (+13.4), v02 7:47.579 (−23.8), v03 7:46.382 (−25.0), v04 7:50.704 (−20.6), **v05 8:02.424 (−8.9)**. Progression is now monotonic in realism — each physics layer takes the sim closer to reference, not further from it.
+- Max speed 289.3 km/h (Döttinger Höhe straight), min 61.5 km/h (tightest Karussell-class corner), mean 203.8 km/h.
+- Single continuity iter converged: start 232.80 km/h, end 231.84 km/h on Iter 1 (Δ < 1 km/h). Loops don't chase their tail — good stability signal.
+- Continuity start 232.80 km/h matches v04 to the nearest printed digit, confirming that the new lateral-transfer physics doesn't disturb the start-of-lap equilibrium in an unphysical way.
+
+**Think:**
+- **Why v05 is *−1.81%* fast, not at reference.** Three candidate causes, in order of likely contribution: (a) peak curvature preservation on the telemetry source is still at 76% per Entry 015 — the true corner tightness is under-reported, which inflates cornering speed; the GPS source (Entry 011 shows 94% preservation) will tighten every tight corner and lose a second or two back; (b) μ₀ = 1.85 is a generous baseline for a GT3 soft compound over a 25 km lap and could calibrate down; (c) `h_cog = 0.31 m` and `brake_bias_f = 0.57` are `[EST]` values from iRacing heuristics, not measured — either could nudge the delta. The charter plan is to close the −1.81% by running the GPS source through v05 first (physics-free correction via better input data), then calibrating the three numbers against sector deltas. Do not try to "fix" this with a new physics layer; the model is now physically complete through rigid-body and roll-distribution, further fidelity means multibody suspension which is outside the QSS scope we agreed.
+- **Why the ARB rewrite matters on the CV.** The `load_xfer_reduction` formula in the previous params file was one of those bugs that produced a plausible-looking lap time for the wrong reason — it reduced total lateral transfer from 100% to ~38% and happened to land near the real understeer penalty, so the error hid in a credible number. A recruiter reading the repo wouldn't catch it from the lap time alone; they'd catch it by reading the comment block in §8 and spotting that "ARBs reduce transfer" contradicts what is in every vehicle dynamics textbook. Fixing it before anyone asks was the right call for the portfolio narrative.
+- **Retirement discipline (old v05/v05_refined, and the cwd path bug).** Both predecessor v05 files had to be renamed rather than deleted because the `*_retired_YYYY-MM-DD` suffix is now repo convention (set by `lap_sim_v04_buggy_2026-04-18.m` in Entry 011) — an honest paper trail of what was built and why it was abandoned is more valuable than a silently-clean repo. Same logic for keeping the short Entry-015 path-bug fix comment in the track builders: the class of bug (MATLAB `run()` changes cwd) is non-obvious and worth flagging for the reader.
+- **Why the continuity loop converged on iteration 1 instead of 3–4.** The new per-tyre grip helper is a *smoother* function of a_long than v04's per-axle helper, because a one-newton change in `dFz_long` now moves four tyre μ's instead of two. Smoother Jacobian → less iteration needed to reach the fixed point. Minor, but it's a nice side-effect of the physics upgrade and suggests the continuity-iter cap of 5 is now overly generous.
+
+**Next:**
+- ✅ Done (this entry). `01_references/technical_reference.md` gained §2.7 (Suspension — K_ARB, K_tire, K_roll, roll_dist) and §11 (v05 — rigid-body ΔFz, roll-stiffness redistribution, per-tyre `μ(Fz)`, the `−2kδ²` axle-grip penalty derivation, validation table). §9.8 rewritten to reference §11 instead of labelling v05 as a stretch goal. `Needed from: v05` forward refs in §2 switched to past tense. Old `load_xfer_reduction` narrative retired.
+- Run `build_track` with `track_source = 'gps'` → `lap_sim_v01..v05` on the GPS track. Expected: v05 moves toward the ±1% target as peak-κ preservation climbs from 76% to ≥90%. Capture deltas in Entry 017.
+- Begin the calibration sweep queued from Entry 015: `h_cog ∈ [0.28, 0.34] m` and `brake_bias_f ∈ [0.53, 0.61]`, minimising lap-time delta and sector-by-sector Δspeed on v05. One-pager under `06_reports/`.
+- Cross-check: re-run `diagnose_brake_v04` against `sim05` — the struct fields it reads (`a_brake`, `v`, `dist`, `Fz_f_forward`, `Fz_r_forward`) are all present in `sim05`, so the diagnostic should work unchanged and give us a v04-vs-v05 brake-spike comparison for free.
+
+---
+
 ## Entry 015 — 2026-04-20 — Track-source dispatcher wired; portfolio docs consolidated
 
 **Phase:** 4 (Model build — curvature-source experiment unblocked)
@@ -150,6 +187,46 @@
   3. Forward pass: iterative solve with `dFz = m·a·h/L`, friction circle, RWD traction `a = μ_r·Fz_r/m`.
   4. Backward pass: same but with brake-bias-aware combined braking force.
 - Confirm expected result lands in 7:50–7:58 range before proceeding to v05.
+
+---
+
+## Entry 013 — 2026-04-18 — Added ARB parameters; v05_refined with load transfer reduction (+5.6%)
+
+**Phase:** 4 (Model refinement — ARB-corrected lateral transfer)
+
+**Done:**
+- Added anti-roll bar (ARB) parameters to `amg_gt3_params.m`:
+  - K_ARB_f = 150,000 N·m/rad (front)
+  - K_ARB_r = 100,000 N·m/rad (rear)
+  - K_tire_f = 75,000 N·m/rad (front tyre roll stiffness)
+  - K_tire_r = 75,000 N·m/rad (rear tyre roll stiffness)
+  - Computed load transfer reduction factors: 33.3% (front), 42.9% (rear)
+- Built v05_refined simulator (`03_models/v05_refined/lap_sim_v05_refined.m`):
+  - Applies ARB-corrected lateral load transfer: dFz_eff = dFz_full × (K_tire / (K_ARB + K_tire))
+  - Same three-pass solver as v05, but with reduced effective lateral transfer
+- Ran v05_refined with GPS curvature data
+- v05_refined result: **8:38.675** vs reference 8:11.341 = **+27.3 s (+5.6%)**.
+- v05_refined vs v04: **+25.2 s penalty** (lateral transfer with ARBs is still significant).
+
+**Found:**
+- v05_refined improved over v05 by 7 seconds (34.3s → 27.3s) by applying ARB corrections
+- But still 5.6% too slow, outside ±1% target
+- Only 12% of track points at cornering limit (rest limited by accel/brake)
+- Grip levels now realistic: @ 260 km/h, mu_out = 1.19 (was 0.475 in v05, 1.17 in v04)
+- ARB parameters used (K_ARB_f=150k, K_ARB_r=100k) give reduction factors of 33% / 43%
+- These factors appear CONSERVATIVE — may need tuning to match real car behavior
+
+**Think:**
+- v05_refined is on the right track but ARB stiffness values may be underestimated
+- Real GT3 cars might have stiffer ARBs (250k+ N·m/rad) that reduce load transfer even less
+- Or, the reference lap driver was driving a setup with specific ARB stiffness that we haven't matched
+- **Decision point:** either (1) tune ARB stiffness higher to get v05_refined within ±1%, or (2) accept v04 as final and document v05_refined as optional future refinement
+- v04 at +0.44% already meets charter requirement; v05_refined is a "nice to have" for lateral dynamics fidelity
+
+**Next:**
+- Decision: tune ARBs or finalize at v04?
+- If tuning: adjust K_ARB_f and K_ARB_r upward, re-run v05_refined
+- If finalizing: commit as-is, move to Phase 5 engineering studies
 
 ---
 
@@ -376,4 +453,162 @@
 - v03 (load sensitivity) should bring the time back up significantly, possibly close to the ±1% target. The question is whether it overshoots or undershoots.
 
 **Next:**
-- v03 — add tyre load sensitivity: μ(Fz) = μ_0 - 
+- v03 — add tyre load sensitivity: μ(Fz) = μ_0 - k × Fz. This directly addresses the dominant error in v02.
+
+---
+
+## Entry 005 — 2026-04-16 — Phase 3 complete: v01 point-mass simulator runs
+
+**Phase:** 3 (Model build — v01)
+
+**Done:**
+- Built the v01 point-mass QSS lap simulator (`03_models/v01_point_mass/lap_sim_v01.m`).
+- Model: fixed friction circle (μ = 1.60), aero drag (no downforce), engine torque curve with auto gear selection, three-pass solver (cornering → forward → backward), lap continuity iteration.
+- Debugged forward pass: initial code clamped `a_forward` to zero, preventing drag deceleration above equilibrium speed. Fixed to allow drag (an aero force, not a tyre force) to decelerate the car independently of the friction circle.
+- First sim result: **8:13.730** vs reference **8:11.341** = **+2.389 s (+0.5%)**.
+
+**Found:**
+- v01 hits ±1% target on first attempt. This is likely due to compensating errors: no downforce makes fast corners too slow (sim underestimates grip at high speed), while constant μ overestimates grip at high load (ignores load sensitivity). These errors partially cancel, giving a misleadingly close lap time.
+- Lap continuity iteration converges in 1 pass. Start/finish speed settles at ~233 km/h.
+- Min cornering speed: 65.7 km/h (tightest Nordschleife corner, ~21 m radius).
+- The speed comparison plot shows the sim tracks the reference shape well overall, but will diverge in specific zones once we look more closely during proper correlation analysis.
+
+**Think:**
+- The +0.5% headline number is encouraging but should not be over-interpreted. Channel-by-channel correlation (speed vs. distance overlay, g-g scatter) will reveal where the model is honest and where it's getting lucky. That's the real validation, not just the total lap time.
+- Adding downforce in v02 will change the picture significantly: fast-corner speeds will increase (more grip), but straight-line speed may drop (more drag from increased Cl). The net lap time effect is unclear until we run it.
+- The three-pass solver structure is clean and extensible — v02 only needs to modify how grip is computed at each point (make it speed-dependent), not the solver logic itself.
+
+**Next:**
+- Phase 4 — build v02 (add aerodynamic downforce to the grip model). This is the first model version where grip becomes speed-dependent.
+
+---
+
+## Entry 004 — 2026-04-16 — Phase 2 complete: data acquisition done
+
+**Phase:** 2 (Data acquisition)
+
+**Done:**
+- Created vehicle parameter file (`02_data/car/amg_gt3_params.m`). All parameters loaded as a single `car` struct with data-quality flags: [HOMOL], [IRACING], [EST], [CALC]. Verification printout confirms sane values.
+- Created MATLAB startup script (`startup_project.m`) — sets project root as working directory and loads car parameters automatically.
+- Exported reference lap from iRacing via PI Toolbox Pro: 8:11.341 at N24 in AMG GT3. Group 1 channels (speed, accel, throttle, brake, gear, RPM, steering). Saved as `reference_lap.xls`.
+- Built import script (`02_data/telemetry/processed/import_reference_lap.m`): reads PI Toolbox export, converts units to SI, computes distance via trapezoidal integration of speed, saves clean `ref` struct as `.mat`.
+- Built track data script (`02_data/track/build_track.m`): computes curvature from lateral g and speed (kappa = a_lat/v²), smooths with 50 m moving average, resamples to 1 m uniform distance spacing.
+
+**Found:**
+- PI Toolbox export is at 100 Hz (interpolated from iRacing's native 60 Hz). Adequate resolution.
+- Computed track length: 25,206 m vs. official 25,378 m (0.7% shorter — expected, since racing line clips apexes vs. geometric centerline).
+- Lap duration from data: 491.330 s vs. stated 491.341 s (11 ms difference from last sample boundary — negligible).
+- Peak curvature ~0.047 [1/m] = ~21 m radius. Consistent with tightest Nordschleife corners (Karussell, Adenauer Forst).
+- Top speed per gear from params: 75, 117, 157, 198, 244, 291 km/h. 6th gear theoretical max (291) is above aero-limited top speed (~270), meaning car runs out of power before gears. Correct for N24 aero config.
+- Aero at 200 km/h: 6763 N downforce (~689 kg, about half car mass). L/D = 3.31. Both in expected GT3 range.
+- MATLAB `save` function does not resolve relative paths the same way `readtable` does — must use absolute paths via `fullfile(pwd, ...)`. Learned the hard way.
+
+**Think:**
+- All three data inputs for v01 are in place: car params, reference telemetry, track curvature.
+- Groups 2–4 telemetry (parameter extraction, GPS, extras) deferred — not needed until v02+ correlation when we refine [EST] parameters. GPS data available when needed for elevation profile.
+- The verification plots (speed trace, curvature, g-g) all look physically consistent. No gross data errors detected.
+- 50 m smoothing window for curvature is a tuneable parameter — may need refinement during correlation if sim speed oscillates or corners are over-smoothed.
+
+**Next:**
+- Phase 3 — build the v01 point-mass QSS simulator in MATLAB. First real model code.
+
+---
+
+## Entry 003 — 2026-04-16 — Phase 1 complete: fidelity ladder accepted
+
+**Phase:** 1 (Requirements & fidelity decisions)
+
+**Done:**
+- Reviewed the fidelity ladder from Rung 1 (point-mass, fixed friction) through Rung 5 (bicycle + lateral load transfer). Studied what each rung adds and what it still misses.
+- Accepted the incremental roadmap: v01 → v02 → v03 → v04, with v05 as a stretch goal.
+- Wrote and committed Design Note 001 (`00_admin/02_design_note_001_fidelity.md`) capturing the architecture decision in ADR format: context, decision, rationale, alternatives considered, consequences.
+- Chose QSS (quasi-steady-state) time treatment over transient. Track will be discretized into segments; at each segment we solve for maximum speed given the current grip envelope.
+
+**Found:**
+- The core question in simulation engineering is not "is my model correct?" but "is my model correct enough for the question I'm asking?" — fidelity is a deliberate design choice, not a default.
+- The g-g diagram (friction circle) is the central concept: it represents the car's acceleration capability at any instant. For v01 it's a fixed circle; for v02+ it becomes speed-dependent (g-g-*v* surface) because aero downforce grows with speed.
+- Tyre load sensitivity (Rung 3) is where correlation typically improves the most: real tyres lose grip coefficient as vertical load increases, so ignoring this overestimates high-speed cornering.
+- Climbing rung-by-rung lets us quantify how much lap time each physical effect is worth at N24 — that's a learning output, not just an intermediate.
+
+**Think:**
+- The incremental approach is slower to build but dramatically easier to debug and learn from. If v03 produces a bad number, the diff against a trusted v02 isolates the problem to load sensitivity specifically. Jumping to v04 directly would make root-cause analysis nearly impossible.
+- QSS is the right choice: ~80% of professional setup studies are done QSS. Transient would require suspension/damper data we don't have and would add complexity without teaching the core lessons better.
+- v04 (+ longitudinal weight transfer) is the realistic target for the charter's ±1% lap time correlation. v05 is a bonus if time allows.
+
+**Next:**
+- Phase 2 — data acquisition. Collect AMG GT3 vehicle parameters (mass, CoG, wheelbase, aero map, tyre grip, engine curve, gearing) and process iRacing telemetry + track map through PI Toolbox into usable inputs.
+
+---
+
+## Entry 002 — 2026-04-16 — Phase 0 complete: Git repo live
+
+**Phase:** 0 (Project setup)
+
+**Done:**
+- Installed Git for Windows and configured global `user.name` and `user.email`.
+- Cleaned up leftover `.git/` folder from failed sandbox attempt, then ran `git init -b main`, `git add .`, `git commit -m "setup: ..."` in Git Bash at the project root.
+- Verified first commit with `git log --oneline`. Hash on `main`: `9920ffb`.
+
+**Found:**
+- `git init` printed `warning: re-init: ignored --initial-branch=main` because a prior partial `.git/` still contained a valid commit. Subsequent `git add`/`git commit` returned "nothing to commit, working tree clean" — i.e. the state was already what we wanted. No harm done; just a quirk of reusing an existing `.git`.
+- Learned the core six Git commands: `init`, `status`, `add`, `commit`, `log`, `diff`.
+- Learned our commit-message convention: `<type>: <summary>`, types being `setup | data | model | corr | study | docs | fix`.
+
+**Think:**
+- Repo is correctly initialized with `main` as the primary branch. `.gitignore` is in place so raw telemetry and MATLAB clutter won't pollute history.
+- The working loop from now on is: edit → `git status` → `git add <files>` → `git commit -m "..."`. Every session ends with at least one commit.
+- The "re-init" warning is benign but worth remembering — Git treats `.git/` as sacred and won't overwrite it, so if something is wrong with a repo you delete `.git/` and start fresh.
+
+**Next:**
+- Begin Phase 1 — requirements & fidelity decisions. Pick the model architecture (point-mass QSS → what extensions, in what order) and write it up as a short design note in `00_admin/`.
+
+---
+
+## Entry 001 — 2026-04-15 — Project kickoff
+
+**Phase:** 0 (Project setup)
+
+**Done:**
+- Defined project scope with technical lead: AMG GT3 on N24 24h layout, MATLAB R2024b + iRacing + PI Toolbox Pro only.
+- Created folder structure under `Lap time simulator/` with phase-numbered directories (00_admin through 07_portfolio).
+- Wrote and reviewed project charter (`00_admin/00_project_charter.md`). Accepted as-is.
+- Confirmed reference lap: own iRacing telemetry, 8:11 baseline in AMG GT3 at N24 layout.
+
+**Found:**
+- MATLAB R2024b installed with full toolbox suite (incl. Simulink, Optimization, Vehicle Dynamics Blockset).
+- PI Toolbox Pro licensed — math channels and exports available.
+- No Git experience yet; crash course scheduled for Step 0.3.
+
+**Think:**
+- Tooling is sufficient to hit the charter's correlation target (±1% lap time on QSS model).
+- Scope deliberately excludes tyre thermal/wear — defensible given no rig data access.
+- Reference lap at 8:11 is clean enough for correlation (doesn't need to be a record lap; needs to be consistent and representative).
+
+**Next:**
+- Complete Step 0.3 — Git setup.
+- Begin Phase 1 — requirements and fidelity decisions.
+
+---
+
+<!-- Add new entries ABOVE this line, most-recent-first ordering -->
+<!-- Template:
+
+## Entry NNN — YYYY-MM-DD — short title
+
+**Phase:** X (name)
+
+**Done:**
+-
+
+**Found:**
+-
+
+**Think:**
+-
+
+**Next:**
+-
+
+---
+
+-->

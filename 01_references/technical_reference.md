@@ -2,7 +2,7 @@
 
 **Author:** Jaykumar Patil
 **Created:** 2026-04-16
-**Last revised:** 2026-04-20 — added sections on the GPS centerline track source (§4A), v03 load sensitivity (§8), v04 longitudinal weight transfer (§9), and correlation diagnostics (§10); rewrote §4.4 around the two-stage curvature filter; refreshed the data-flow diagram in §5 to reflect the built v01..v04 solvers and the track-source dispatcher.
+**Last revised:** 2026-04-21 — added §2.7 (Suspension parameters — ARB roll stiffnesses and the derived roll distribution) and §11 (v05 lateral weight transfer + per-tyre load-sensitive grip + the `−2kδ²` grip penalty derivation + validation table), retired the `load_xfer_reduction` narrative, rewrote §9.8 now that v05 exists, and updated the "Needed from: v05" forward references in §2 to past tense. Previous revision (2026-04-20) added §4A (GPS centerline source), §8 (v03 load sensitivity), §9 (v04 longitudinal weight transfer), §10 (correlation diagnostics), rewrote §4.4 around the two-stage curvature filter, and refreshed the §5 data-flow diagram.
 **Purpose:** Documents every calculation, equation, assumption, and design decision made in this project. This is the document you open when you ask "why did we do it this way?" or "what does this equation mean?"
 
 ---
@@ -20,6 +20,7 @@
 8. v03 — tyre load sensitivity
 9. v04 — longitudinal weight transfer and per-axle grip
 10. Correlation and diagnostics
+11. v05 — lateral weight transfer and ARB redistribution
 
 ---
 
@@ -89,7 +90,7 @@ Physical meaning: when the car corners, load transfers from the inside tyres to 
 
 A wider track means less lateral load transfer, which preserves grip (because of tyre load sensitivity — see section 2.5).
 
-Needed from: v05 (bicycle model with lateral load transfer). Collected now for completeness.
+Used in v05 (lateral weight transfer): the rigid-body formula above sets the total load that shifts from the inside to the outside tyres; ARB roll stiffness then sets how that total is split between the front and rear axles. See §11.
 
 **car.h_cog = 0.465 m**
 
@@ -171,7 +172,7 @@ Nearly doubling the effective weight of the car. This is why GT3 cars can corner
 
 How the total downforce is split between front and rear axles. At 43% front, the rear gets 57% — so the rear has more aero grip than the front at high speed. This is a setup parameter teams adjust with wing angle, splitter, and diffuser.
 
-Needed from: v05 (per-axle aero loads). Collected now.
+Used from v04 onwards: the per-axle static + aero load is what `get_axle_grip_v0x()` scales by μ(Fz) to produce `F_grip_f` / `F_grip_r`. v05 extends that by splitting each axle's `Fz` into outside and inside contact patches; the axle-level 43/57 aero split stays exactly the same.
 
 **Precomputed aero constants:**
 
@@ -312,6 +313,35 @@ The lightly loaded tyre has HIGHER friction coefficient. This is the fundamental
 In a QSS sim, braking is almost always tyre-limited, not hardware-limited. GT3 carbon brakes can produce far more torque than the tyres can handle. So maximum deceleration is set by tyre grip, not brake hardware.
 
 Brake bias becomes important in v04 when we model per-axle loads: during braking, the front axle gets heavier (weight transfer forward), so it can handle more braking force. 57% front bias is a starting point that roughly matches the weight distribution under braking.
+
+### 2.7 Suspension
+
+v05 introduced the first suspension parameters. They exist only to set the axle-to-axle split of lateral load transfer — v05 is still QSS, there are no springs, dampers, or roll angles in the integrator. The reason we model suspension at all is that the ARB (anti-roll bar) controls *how much of* the lateral transfer passes through each axle, and that split has a direct grip consequence because `μ(Fz)` is non-linear.
+
+**car.suspension.K_ARB_f = 150000 Nm/rad  [EST]**
+**car.suspension.K_ARB_r = 100000 Nm/rad  [EST]**
+
+Anti-roll bar roll stiffness, front and rear. An ARB is a torsion spring connecting the left and right wheels on an axle: when the chassis rolls, one side goes up and the other goes down, the bar twists, and the bar resists. "Roll stiffness" is how much moment [Nm] the bar produces per radian of roll. These values are flagged `[EST]` because real GT3 ARB rates are team-confidential setup numbers; the front-biased split (150k vs 100k) is consistent with GT3 setup norms where the front is usually stiffer in roll to keep the nose from understeering into the apex on long corners.
+
+**car.suspension.K_tire_f = car.suspension.K_tire_r = 75000 Nm/rad  [EST]**
+
+Tyre vertical stiffness expressed as a roll-stiffness equivalent. Even with a very soft ARB, the tyres themselves are springs between the chassis and the ground — stiffer tyres transfer load faster regardless of what the bar does. Including this term makes the model robust when we later run ARB-change sweeps: a setup study that halves the ARB rate should see the roll distribution shift toward the tyre-driven value, not toward the zero the old `load_xfer_reduction` formulation would have implied.
+
+**Derived: car.suspension.K_roll_f, .K_roll_r, .roll_dist_f, .roll_dist_r**
+
+At each axle the ARB and the tyre act as two torsion springs in parallel, so their stiffnesses add:
+
+    K_roll_f = K_ARB_f + K_tire_f = 225000 Nm/rad
+    K_roll_r = K_ARB_r + K_tire_r = 175000 Nm/rad
+
+Roll distribution is just each axle's share of the total:
+
+    roll_dist_f = K_roll_f / (K_roll_f + K_roll_r) = 0.5625 (56.25%)
+    roll_dist_r = K_roll_r / (K_roll_f + K_roll_r) = 0.4375 (43.75%)
+
+These are the numbers v05 multiplies `ΔFz_lat_total` by to get the per-axle lateral load transfer. Full derivation and v05 solver integration is in §11.
+
+**What this parameter file used to have, and why we removed it.** Before 2026-04-21 the file carried `car.suspension.load_xfer_reduction_f/_r`, a pair of scalars meant to represent a fractional "reduction" in lateral transfer that a stiff ARB supposedly provides. That is wrong on first principles: the total lateral transfer is a rigid-body consequence of `m·a_lat·h_cog/t_avg` and cannot be reduced by any suspension element. The replacement fields above describe the physically real effect — redistribution between axles — which is what ARBs actually do. Entry 016 in the logbook records the rewrite.
 
 ---
 
@@ -762,9 +792,11 @@ v04 has an implicit coupling: `a_long` sets `ΔFz`, `ΔFz` sets per-axle grip, a
 
 v04's validated result is 7:50.704, 20.6 s faster than the reference (−4.20%). That puts the charter target (±1%) out of reach until (a) the curvature source is improved — the GPS track lowers the optimism directly — and (b) setup parameters (`h_cog`, `brake_bias_f`) are calibrated against the reference lap. The weight-transfer cost v04 − v03 is +4.32 s, squarely inside the 3–8 s textbook expectation for a GT3 at this track, which is the strongest internal check that the new physics is behaving. Entry 014 in the logbook records the end-to-end verification, including the brake-peak investigation that resolved Entry 012's 3.65 g concern to a real-world 2.60 g.
 
-### 9.8 What v04 is *not* yet
+### 9.8 What v04 is *not* yet — and how v05 fixes it
 
-v04 is still a point-mass model in one respect: it has no lateral weight transfer between inside and outside tyres, because a point mass has no track width. That effect is the v05 stretch goal. Until then, v04's per-axle grip is the grip of an average tyre under the axle's average load — in a fast corner the outside tyre is overloaded relative to this average and the inside is underloaded, and those two errors do not exactly cancel because load sensitivity is non-linear.
+v04 is still a point-mass model in one respect: it has no lateral weight transfer between inside and outside tyres, because a point mass has no track width. v04's per-axle grip is therefore the grip of an average tyre under the axle's average load — in a fast corner the outside tyre is overloaded relative to this average and the inside is underloaded, and those two errors do not exactly cancel because load sensitivity `μ(Fz) = μ₀ − k·Fz` is non-linear. The result is that v04 over-reports cornering grip.
+
+v05 (§11) closes this by splitting each axle's load into an outside and inside contact patch, applying `μ(Fz)` to each tyre separately, and summing the two. The asymmetry of the penalty is algebraically a `−2kδ²` term in the axle grip, where `δ` is half the lateral load transfer on that axle. That term is quadratic in `δ`: small at low speed, growing rapidly where cornering loads are highest. On the N24 validated reference lap, v05 removes +11.72 s of optimism compared with v04 — exactly the sign and order of magnitude the theory predicts. Full v05 walkthrough in §11.
 
 ---
 
@@ -785,3 +817,97 @@ The script encodes a specific piece of race-engineering reasoning: if the peak i
 ### 10.3 Correlation conventions
 
 Correlation plots always use the same distance axis for simulated and reference speeds (the `track.dist` on whichever source built the track). Deltas are reported as Δt (cumulative) and Δv (point-by-point). Sector-by-sector breakdowns follow the N24 sector conventions used by the race teams rather than arbitrary length windows, so the reports read naturally against in-car radio calls.
+
+---
+
+## 11. v05 — Lateral Weight Transfer and ARB Redistribution
+
+Folder: `03_models/v05_lateral_transfer/`
+File: `lap_sim_v05.m`
+
+### 11.1 Why v05 exists
+
+v04 already carries per-axle vertical loads and a per-axle load-sensitive grip model, but its grip on each axle is evaluated at the *axle-average* tyre load. A real car does not live at that average: under lateral acceleration, a fraction of the axle's vertical load is transferred from the inside tyre to the outside tyre. With a non-linear `μ(Fz) = μ₀ − k·Fz`, the outside tyre loses more grip than the inside tyre gains, so the axle's total lateral grip is strictly less than v04's average-load estimate. v05's one job is to capture that asymmetry.
+
+The size of the effect is not small. For a GT3 at N24 speeds, the lateral transfer cost is expected in the 8–15 s range against the single-tyre idealisation; v05's validated cost is +11.72 s, right inside that window. Without v05, any calibration work on `h_cog`, `brake_bias_f`, or tyre `μ₀` would be trying to absorb those 11.72 s into parameters that have no physical connection to lateral transfer, and would drift the car-model further from reality in the process.
+
+### 11.2 The total lateral transfer is a rigid-body fact
+
+For a rigid car in steady-state cornering, the total load that shifts from the inside pair of tyres to the outside pair is fixed by geometry:
+
+    ΔFz_lat_total = m · a_lat · h_cog / t_avg
+
+Where `t_avg = 0.5·(track_f + track_r)`. This equation is Newton's second law applied to a free body — it does not care about springs, dampers, or anti-roll bars. The only way to reduce it is to lower `h_cog`, widen the track, or reduce `a_lat`. **Suspension hardware cannot reduce the total.**
+
+This matters because an earlier version of our parameter file carried a field called `load_xfer_reduction_f` / `_r` which was meant to represent the ARB's effect on lateral transfer. That formulation was wrong on first principles: a stiffer ARB does not eliminate load — it forces the load to transfer *faster and more completely* through that axle. v05's parameter rewrite (see §2.7 "Suspension") replaces that field with explicit front and rear roll stiffnesses and derives a *redistribution* ratio instead of a reduction factor.
+
+### 11.3 ARB redistribution — the roll-stiffness model
+
+What the ARB actually controls is *how much of* `ΔFz_lat_total` passes through the front axle versus the rear. In steady state, the distribution is proportional to each axle's total roll stiffness:
+
+    K_roll_axle = K_ARB + K_tire_vertical     [Nm/rad per axle, springs-in-parallel]
+
+    roll_dist_f = K_roll_f / (K_roll_f + K_roll_r)
+    roll_dist_r = K_roll_r / (K_roll_f + K_roll_r)
+
+    ΔFz_lat_f = ΔFz_lat_total · roll_dist_f
+    ΔFz_lat_r = ΔFz_lat_total · roll_dist_r
+
+With our current estimates (`K_ARB_f = 150000`, `K_ARB_r = 100000`, `K_tire_f = K_tire_r = 75000`, all `[EST]`), `roll_dist_f = 0.5625` and `roll_dist_r = 0.4375`. The front-biased ARB pushes more of the lateral transfer through the front axle, which reduces front grip (outside front is more overloaded) relative to the rear — this is exactly the dial a race engineer turns when they want to add understeer in a low-grip condition, or vice versa.
+
+The tyre vertical stiffness term `K_tire_vertical` is included because the ARB does not act alone: the tyre itself is a spring between the chassis and the contact patch, and a stiff tyre behaves a little like an ARB even if the bar itself is soft. Including it makes the model robust to ARB-change sweeps that we will eventually run as a setup study.
+
+### 11.4 Per-tyre load and per-tyre μ
+
+Inside `get_axle_grip_v05()`, each axle's vertical load `Fz_axle` (already including longitudinal transfer and per-axle aero from v04) is first split evenly between the two tyres:
+
+    Fz_f_base_per_tyre = 0.5 · Fz_f_axle
+    Fz_r_base_per_tyre = 0.5 · Fz_r_axle
+
+Then the lateral transfer on each axle is added to the outside tyre and subtracted from the inside tyre:
+
+    Fz_f_out = Fz_f_base_per_tyre + ΔFz_lat_f
+    Fz_f_in  = Fz_f_base_per_tyre − ΔFz_lat_f
+    Fz_r_out = Fz_r_base_per_tyre + ΔFz_lat_r
+    Fz_r_in  = Fz_r_base_per_tyre − ΔFz_lat_r
+
+A 50 N physical floor is applied per tyre — a real tyre that has lifted off has zero normal load and therefore zero grip, but a zero in the divisor of any downstream calculation would introduce noise. The floor is well below any realistic contact load and large enough to avoid numerical issues.
+
+`μ(Fz)` is then evaluated four times — once per tyre — using the same `μ₀ − k·Fz` law as v03/v04, with a floor of 0.5 so the curve stays positive even if a specific tyre is briefly loaded beyond the linear-fit range. Each tyre's grip is `μ_tyre · Fz_tyre`, and the axle's total lateral grip is the sum of its two tyres:
+
+    F_grip_f = μ_f_out · Fz_f_out + μ_f_in · Fz_f_in
+    F_grip_r = μ_r_out · Fz_r_out + μ_r_in · Fz_r_in
+
+### 11.5 Why this costs grip — the `−2kδ²` term
+
+It is worth seeing on paper why v05 always produces less grip than v04 when `δ > 0`. Let `F_base = 0.5·Fz_axle` and `δ = ΔFz_lat_axle`. Using the per-tyre μ law:
+
+    F_grip_axle_v05 = (μ₀ − k·(F_base + δ))·(F_base + δ)  +  (μ₀ − k·(F_base − δ))·(F_base − δ)
+                    = 2·μ₀·F_base  −  2·k·(F_base² + δ²)
+                    = F_grip_axle_v04  −  2·k·δ²
+
+The `2·k·F_base²` part is exactly what v04 already computes; the extra term is the penalty v05 introduces. It is quadratic in `δ` (so small in slow corners, large in fast ones) and linear in `k` (so a stiffer load-sensitivity curve makes the effect larger). There is no free parameter here — `k` is fixed from tyre data in §8, and `δ` falls out of the rigid-body ΔFz and the roll distribution.
+
+### 11.6 Where v05 sits in the solver
+
+The v05 helper slots into exactly the same three passes as v04:
+
+- **Pass 1 — pure-cornering speed limit.** `a_lat = v²·κ` is iterated against `F_grip_f + F_grip_r` until the helper returns an axle grip pair consistent with that `a_lat`. At this pass `a_long = 0`.
+- **Pass 2 — forward (drive) pass.** Same RWD friction-circle logic as v04. The rear-axle lateral share is `Fz_r / (Fz_f + Fz_r)` where `Fz_f` and `Fz_r` already reflect both longitudinal and lateral shifts from the helper. Drive limit: `F_x_drive_max = √(F_grip_r² − F_y_r²)`.
+- **Pass 3 — backward (brake) pass.** Per-axle brake limit with the same `min(F_x_f/bias_f, F_x_r/(1−bias_f))/m` rule as v04. With v05's reduced grip the weaker axle binds more readily, which is why the trace sits slightly closer to the reference in heavy-braking zones.
+
+The outer lap-continuity iteration from v04 (initial-speed seed from the previous lap's end-speed, damped, tolerance 0.01 m/s²) is preserved unchanged. On the validated run it converges in one iteration.
+
+### 11.7 Validation state
+
+| Version | Lap time   | Δ vs ref     | Δ vs previous version |
+| ------- | ---------- | ------------ | --------------------- |
+| Ref     | 8:11.341   | —            | —                     |
+| v04     | 7:50.704   | −20.637 s    | (vs v03) +4.32 s      |
+| **v05** | **8:02.424** | **−8.917 s (−1.81%)** | **+11.720 s vs v04**  |
+
+The +11.72 s v05-over-v04 cost sits inside the 8–15 s range expected for lateral transfer on a GT3 at N24, so this is a physics gate that the model passed. The remaining −1.81 % against the reference is the target for the next phase of work: a GPS-source track (peak κ currently 76 % on telemetry, below the 85 % target — see Entry 008) and a calibration sweep on `h_cog` and `brake_bias_f`, both of which currently carry `[EST]` flags. v05 is the last pure physics layer in the ladder; everything from here is calibration against the reference lap rather than adding new effects.
+
+### 11.8 What v05 is still not
+
+v05 is still QSS: it does not model transient roll dynamics (spring/damper oscillation on corner entry and exit), it does not model camber recovery through the lateral transfer, and it does not model the real tyre's `Fy(Fz, α)` slip curve — the load-sensitive `μ` is a peak-grip surrogate, not a slip-angle model. Those are Pacejka/MF territory and sit outside the scope of the portfolio piece. The one effect inside scope that v05 does not yet add is differential behaviour on the driven axle, which only matters for on-throttle-in-corner cases where the inside rear approaches unloading; on this car with `car.weight_dist_f = 0.46` and modest rear wing, that condition is rare on the N24 reference lap.

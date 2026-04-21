@@ -185,7 +185,12 @@ track.meta.notes       = ['Curvature computed from a_lat/v^2 with a 15-sample ' 
 %  6. SAVE
 %  ========================================================================
 
-outdir  = fullfile(pwd, '02_data', 'track');
+% Resolve save path relative to THIS SCRIPT, not the caller's cwd. MATLAB's
+% run() (used by the build_track dispatcher) pushes cwd to the script's
+% folder for the duration of execution, so `pwd` would already point here
+% and `fullfile(pwd, '02_data', 'track')` would double-nest. mfilename is
+% robust to that.
+outdir  = fileparts(mfilename('fullpath'));
 outpath = fullfile(outdir, 'n24_track.mat');
 save(outpath, 'track');
 fprintf('Saved to: %s\n', outpath);

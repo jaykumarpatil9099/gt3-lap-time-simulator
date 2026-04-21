@@ -167,7 +167,63 @@ car.brakes.bias_f = 0.57;       % [-]     Front brake bias (fraction of total br
                                  %         57% front is a typical GT3 N24 starting point
 
 %% ========================================================================
-%  8. METADATA
+%  8. SUSPENSION — ANTI-ROLL BARS (ARB)  [REVISED 2026-04-21]
+%  ========================================================================
+%  Correction note (Entry 016): the earlier model in this file treated ARBs
+%  as if they *reduced* the total lateral load transfer on each axle
+%  (`dFz_eff = dFz_full * K_tire/(K_ARB+K_tire)`). That is wrong physics.
+%
+%  Total lateral load transfer is a rigid-body consequence of the CG being
+%  above ground. At a given lateral acceleration it is fixed by geometry:
+%
+%      ΔFz_lat_total = m * a_lat * h_cog / t_avg
+%
+%  (t_avg = (track_f + track_r)/2). This total cannot be reduced by any
+%  suspension choice. What ARBs *do* is set how the total is *distributed*
+%  between the front and rear axles. Stiffer front ARB (relative to rear)
+%  forces the front axle to absorb a larger share of the total transfer,
+%  which in turn erodes more front grip → the car pushes (understeer). A
+%  soft front / stiff rear setup does the opposite → loose rear (oversteer).
+%
+%  The roll-stiffness distribution is:
+%      roll_dist_f = K_roll_f / (K_roll_f + K_roll_r)
+%      K_roll_axle = K_ARB_axle + K_tire_axle
+%  where K_tire is the tyre's contribution to axle roll stiffness (it acts
+%  in parallel with the bar). For v05+ we use this to split the total
+%  lateral transfer between axles without altering the total.
+%
+%  GT3 typical stiffness ranges (unchanged from earlier note):
+%    - Front ARB roll stiffness: K_ARB_f ~ 100,000-200,000 N·m/rad
+%    - Rear ARB roll stiffness:  K_ARB_r ~ 80,000-150,000 N·m/rad
+%    - Tyre roll stiffness per axle: K_tire ~ 50,000-100,000 N·m/rad
+
+car.suspension.K_ARB_f = 150000;  % [N·m/rad] Front anti-roll bar stiffness           [EST]
+                                  %            Typical GT3: 120,000-180,000
+                                  %            N24 setup is usually stiff for curb control
+
+car.suspension.K_ARB_r = 100000;  % [N·m/rad] Rear anti-roll bar stiffness            [EST]
+                                  %            Typical GT3: 80,000-130,000
+                                  %            Rear is usually softer for stability
+
+car.suspension.K_tire_f = 75000;  % [N·m/rad] Front tyre roll stiffness per axle      [EST]
+                                  %            Tyre vertical-stiffness contribution to
+                                  %            front axle roll stiffness (in parallel
+                                  %            with K_ARB_f).
+
+car.suspension.K_tire_r = 75000;  % [N·m/rad] Rear tyre roll stiffness per axle       [EST]
+
+% Per-axle roll stiffness = ARB + tyre, acting in parallel.
+car.suspension.K_roll_f = car.suspension.K_ARB_f + car.suspension.K_tire_f;   % [CALC]
+car.suspension.K_roll_r = car.suspension.K_ARB_r + car.suspension.K_tire_r;   % [CALC]
+
+% Roll-stiffness distribution (front share of total lateral load transfer).
+% v05 uses this to split ΔFz_lat_total between axles.
+car.suspension.roll_dist_f = car.suspension.K_roll_f / ...
+    (car.suspension.K_roll_f + car.suspension.K_roll_r);   % [-] [CALC]
+car.suspension.roll_dist_r = 1 - car.suspension.roll_dist_f;  % [-] [CALC]
+
+%% ========================================================================
+%  9. METADATA
 %  ========================================================================
 
 car.meta.name = 'Mercedes-AMG GT3 Evo';
@@ -202,6 +258,12 @@ fprintf('Gear ratios:       '); fprintf('%.2f  ', car.gearbox.ratios); fprintf('
 fprintf('Final drive:       %.2f\n', car.gearbox.final_drive);
 fprintf('Top speed per gear [km/h]: '); fprintf('%.0f  ', car.gearbox.v_max_gear * 3.6); fprintf('\n');
 fprintf('Brake bias (front): %.0f%%\n', car.brakes.bias_f * 100);
+fprintf('\n--- Suspension / ARB ---\n');
+fprintf('ARB stiffness (F/R):         %.0f / %.0f N·m/rad\n', car.suspension.K_ARB_f, car.suspension.K_ARB_r);
+fprintf('Tyre roll stiffness (F/R):   %.0f / %.0f N·m/rad\n', car.suspension.K_tire_f, car.suspension.K_tire_r);
+fprintf('Total roll stiffness (F/R):  %.0f / %.0f N·m/rad\n', car.suspension.K_roll_f, car.suspension.K_roll_r);
+fprintf('Roll distribution (F/R):     %.1f%% / %.1f%%  (front share of total lateral ΔFz)\n', ...
+        car.suspension.roll_dist_f*100, car.suspension.roll_dist_r*100);
 fprintf('\n--- Aero loads at 200 km/h (55.6 m/s) ---\n');
 v_test = 200/3.6;
 fprintf('Drag:              %.0f N (%.1f kg)\n', car.aero_drag_coeff * v_test^2, car.aero_drag_coeff * v_test^2 / car.g);
