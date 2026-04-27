@@ -58,12 +58,17 @@ track_source = lower(string(track_source));
 fprintf('\n=== build_track dispatcher ===\n');
 fprintf('  track_source = ''%s''\n', track_source);
 
+% Resolve sibling scripts via mfilename so the dispatcher works no matter
+% what cwd the caller is in (MATLAB's run() pushes cwd into the caller's
+% folder — see Entry 015 / 016 fixes for the same class of bug).
+dispatcher_dir = fileparts(mfilename('fullpath'));
+
 switch track_source
     case "telemetry"
-        run(fullfile('02_data', 'track', 'build_track_telemetry.m'));
+        run(fullfile(dispatcher_dir, 'build_track_telemetry.m'));
 
     case "gps"
-        run(fullfile('02_data', 'track', 'build_track_from_gps.m'));
+        run(fullfile(dispatcher_dir, 'build_track_from_gps.m'));
 
     otherwise
         error(['Unknown track_source = ''%s''. Valid options: ' ...

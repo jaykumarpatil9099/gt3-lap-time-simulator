@@ -96,16 +96,30 @@ car.tyre.mu_peak = 1.60;        % [-]     Peak tyre friction coefficient        
                                  %         Pirelli DHF GT3 compound: mu ~ 1.55-1.70
                                  %         Used in v01 and v02 as constant grip limit
 
-car.tyre.mu_0 = 1.85;           % [-]     Zero-load extrapolated friction coefficient     [EST]
-                                 %         For load sensitivity model (v03+)
-                                 %         Determined by: mu_peak occurs at some reference Fz
+car.tyre.mu_0 = 1.70;           % [-]     Zero-load extrapolated friction coefficient     [CAL]
+                                 %         For load sensitivity model (v03+).
+                                 %         CALIBRATED 2026-04-21 against telemetry reference lap
+                                 %         in phase5_step4_calibration.m. Previous [EST] value
+                                 %         was 1.85; the calibration sweep on (mu_0, load_sens_k)
+                                 %         landed at mu_0 = 1.70, load_sens_k = 4.4e-5, giving
+                                 %         v05 lap = 8:10.539 (Δ = -0.80 s, -0.16% — inside ±1%
+                                 %         charter). Best-fit minimised the per-sector RMS Δt
+                                 %         (1.49 s), not just total lap delta — the latter alone
+                                 %         can hit zero with cancelling sector errors.
+                                 %         Sweep boundary note: the optimum sat at the lower
+                                 %         edge of the grid, so the true minimum may be slightly
+                                 %         lower still. Charter is met, so we accept rather than
+                                 %         refine. See logbook Entry 017.
 
-car.tyre.load_sens_k = 5.5e-5;  % [1/N]   Load sensitivity slope                         [EST]
+car.tyre.load_sens_k = 4.4e-5;  % [1/N]   Load sensitivity slope                         [CAL]
                                  %         mu(Fz) = mu_0 - k * Fz
+                                 %         CALIBRATED 2026-04-21 (see mu_0 above).
                                  %         At Fz = 4500 N (typical corner weight):
-                                 %           mu = 1.85 - 5.5e-5 * 4500 = 1.60 (matches mu_peak)
+                                 %           mu = 1.70 - 4.4e-5 * 4500 = 1.502
                                  %         At Fz = 7000 N (heavy aero loading):
-                                 %           mu = 1.85 - 5.5e-5 * 7000 = 1.47 (grip drops)
+                                 %           mu = 1.70 - 4.4e-5 * 7000 = 1.392
+                                 %         Lower mu_0 + flatter k vs. previous [EST] = lower
+                                 %         baseline grip but slower fall-off with load.
 
 car.tyre.rolling_radius = 0.327; % [m]     Effective rolling radius (325/705-18 GT3 spec)  [IRACING]
 

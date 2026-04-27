@@ -12,6 +12,49 @@
 
 ---
 
+## Entry 017 — 2026-04-21 — Phase 5 Steps 1–4: GPS experiment, sector analysis, sensitivity, calibration → charter PASS (−0.16 %)
+
+**Phase:** 5 (Calibration and analysis)
+
+**Done:**
+- **Step 1 — GPS vs telemetry track-source experiment.** Built `05_studies/phase5_step1_gps_vs_telemetry.m`. Fixed a second cwd-relative-path bug in `02_data/track/build_track.m` (the dispatcher used `fullfile('02_data','track',…)` which broke when the study script `run()`-ed from `05_studies/`; now resolves via `fileparts(mfilename('fullpath'))` like the two builders did from Entry 016). Re-ran v01..v05 on both sources. Captured peak κ, lap times, mean Δv.
+- **Step 2 — sector correlation.** Built `04_correlation/correlate_sim.m` as a reusable function: takes `(sim, track, sectors, label)`, returns a `corr` struct with per-sector Δt / Δv tables and an annotated speed plot. 6 equal-length sectors (~4.2 km each) as a pragmatic first cut; race-team sector boundaries can replace them later. Ran on v05/telemetry and v05/GPS; produced the side-by-side Δt table.
+- **Step 3 — sensitivity matrix.** Built `05_studies/phase5_step3_sensitivity.m`. 9 parameters × 5 values = 45 v05 runs on GPS source. Each run rebuilt `K_roll_*` and `roll_dist_*` after any ARB change so the suspension chain stayed consistent. Suppressed solver prints with `evalc` for clean output. Ranked by full-range Δlap leverage.
+- **Step 4 — calibration sweep.** Built `05_studies/phase5_step4_calibration.m`. 5 × 5 grid on `mu_0 × load_sens_k`, on telemetry source (driver-line correlation). Two cost metrics tracked — total |Δlap| and per-sector RMS Δt — with sector RMS as the primary objective (more honest: |Δlap| can hit zero with cancelling sector errors). Updated `02_data/car/amg_gt3_params.m` to lock in `mu_0 = 1.70 [CAL]` and `load_sens_k = 4.4e-5 [CAL]`, replacing the previous `[EST]` values, with a calibration provenance comment block citing this entry.
+- Updated Entry 016's Next list to reflect the resequenced Phase 5 plan and corrected the `h_cog ∈ [0.28, 0.34]` typo to `[0.40, 0.52]` (every prior entry used the correct range; Entry 016 captured a typo that would have driven the calibration to F1-low CoGs).
+
+**Found:**
+- **Step 1 results.** Peak κ preservation: telemetry 76 % (R_min = 18.4 m), **GPS 94 % (R_min = 13.2 m)** — GPS clears the ≥ 85 % target from Entry 008, telemetry does not. v05 laps: telemetry 8:02.424 (−1.81 %), GPS 8:25.219 (+2.82 %). Every version is ~22 s slower on GPS than telemetry — that gap is "driver beats centerline-driving by line choice", not a bug. Telemetry and GPS answer different questions: telemetry = "match the driver's specific line", GPS = "what's the theoretical pace independent of line". Decision: telemetry for calibration (Step 4), GPS for sensitivity and setup study (Steps 3, 5).
+- **Step 2 sector signature (telemetry v05, before calibration).** Δlap = −8.91 s. S1 = −3.60 s and S6 = −2.42 s drive 68 % of the optimism — both high-speed sectors (mean speeds 189 / 239 km/h). S2..S5 mid-track sectors are matched to within ±2 s. Mean Δv = +1.47 m/s (sim systematically faster). Read: residual sits in aero or high-load μ, not in low-speed cornering — v05's lateral-transfer physics is honest where it dominates.
+- **Step 2 sector signature (GPS v05).** Δlap = +14.45 s. Concentrated in S3 (+5.6 s) and S5 (+5.4 s) — the technical Nordschleife sections. S1 and S6 (GP + Döttinger, mostly straight) match the driver to ±1 s. Read: GPS residual is line-choice cost, not physics error.
+- **Step 3 sensitivity ranking** (full-range Δlap on a v05/GPS baseline lap of 505.219 s):
+    1. `mu_0`              — 19.95 s over ±5 %       *(both `[EST]`)*
+    2. `load_sens_k`       — 15.89 s over ±20 %      *(both `[EST]`)*
+    3. `Cl`                —  4.67 s over ±10 %
+    4. `K_ARB_f`           —  3.78 s over ±30 %
+    5. `K_ARB_r`           —  3.57 s over ±30 %
+    6. `weight_dist_f`     —  2.68 s over ±2 pts
+    7. `h_cog`             —  1.39 s over ±10 %
+    8. `aero_balance_f`    —  1.09 s over ±4 pts
+    9. `brake_bias_f`      —  1.01 s over ±4 pts
+- **Step 3 implication: original Step 4 plan was underfit.** `h_cog × brake_bias_f` combined leverage ≈ 2.4 s. Trying to absorb a 9–14 s residual into them would have driven both into unphysical values. Pivoted Step 4 to the actual `[EST]` knobs that drive the lap: `mu_0` and `load_sens_k`.
+- **Step 4 calibration result.** Best-fit by sector RMS: `mu_0 = 1.70`, `load_sens_k = 4.4e-5`. v05 lap = 8:10.539. **Δ = −0.796 s (−0.16 % vs ref) — inside the ±1 % charter.** Sector RMS = 1.49 s. The `|Δlap|` minimum and the sector-RMS minimum landed on the same grid point, which is a stronger acceptance signal than either alone.
+- **Step 4 boundary flag.** The optimum sat at the *lower* edge of both sweeps. The true minimum could be slightly lower still. Charter is met so we accept rather than refine; revisiting at the end of Step 5 if the residual still bothers us.
+- **Step 4 residual sector signature (post-calibration).** S1 = −1.96 s, S6 = −1.72 s remain on the negative side; S2 = +1.39 s, S3 = +1.92 s on the positive side. Mean Δv dropped from +1.47 m/s to +0.81 m/s. The asymmetry is now small but *non-random* — high-speed-fast / technical-slow signature. That is an aero-balance or μ-shape signature, not calibration miss; falls naturally to Step 5's `aero_balance_f` and `K_ARB_*` setup study.
+
+**Think:**
+- **The two best-fit knobs were both `[EST]` and both moved a long way (mu_0 1.85 → 1.70; load_sens_k 5.5e-5 → 4.4e-5).** That is exactly what the `[EST]` flag was there to invite — the model now sits on calibrated tyre numbers instead of textbook estimates. Future parameter changes that conflict with these need to be argued against the calibration evidence, not just the previous estimate.
+- **Sector RMS vs |Δlap| as the calibration objective.** Picking `min(|Δlap|)` alone is a rookie trap: the same lap time can come from a sim that is 2 s fast in one sector and 2 s slow in another. RMS over sectors penalises that cancellation. Both metrics agreed on the same grid point in this run, but the principle holds for the 2D `aero_balance_f × K_ARB` study coming next, where cancellation is even easier.
+- **The bias-vs-variance framing of the two sources is a portfolio-friendly observation.** Telemetry has lower rms but a +1.47 m/s mean bias (physics-sized residual); GPS has near-zero mean but higher rms (line-variance residual). That single sentence justifies why the project carries both sources and uses each for the question it answers cleanly. Recruiters read that and see a methodologist, not a model-fitter.
+- **What v05 cannot still answer.** Tyre slip-angle dynamics, transient roll, differential behaviour. Step 5's setup study is the last piece of the QSS analysis ladder; anything still residual after that is genuinely outside QSS scope (Pacejka, transient suspension) and lives as future-work in the write-up.
+
+**Next:**
+- **Step 5 — setup optimisation study.** 2D heatmap on `aero_balance_f × roll_dist_f` (where `roll_dist_f` is swept by varying the front/rear ARB ratio at fixed total roll stiffness). Cost metric: telemetry sector-RMS Δt on the calibrated baseline. Output: heatmap, best setup, and the predicted Δlap vs current setup. This is the single deliverable a GT3 engineer would put on the recruiter's desk: "your bar would be 8 % stiffer and your front aero balance 1 pt forward, here's the lap-time."
+- **Step 6 — portfolio write-up.** Executive summary + methodology + one figure per phase + linked logbook references. Lives in `06_reports/n24_portfolio_summary.md` (or `.docx` if the user wants it polished). Keep it as a navigation layer over the logbook and tech reference, not a duplicate.
+- **Standing instrumentation:** re-run `correlate_sim` on each Step 5 candidate setup. Re-run `diagnose_brake_v04` against `sim05` once the calibrated baseline is locked, to confirm the brake-peak distribution is still honest with the new tyre numbers.
+
+---
+
 ## Entry 016 — 2026-04-21 — v05 rewritten: per-axle + lateral transfer + ARB redistribution → 8:02.424, −1.81% vs ref
 
 **Phase:** 4 (Model build — v05)
@@ -43,9 +86,16 @@
 
 **Next:**
 - ✅ Done (this entry). `01_references/technical_reference.md` gained §2.7 (Suspension — K_ARB, K_tire, K_roll, roll_dist) and §11 (v05 — rigid-body ΔFz, roll-stiffness redistribution, per-tyre `μ(Fz)`, the `−2kδ²` axle-grip penalty derivation, validation table). §9.8 rewritten to reference §11 instead of labelling v05 as a stretch goal. `Needed from: v05` forward refs in §2 switched to past tense. Old `load_xfer_reduction` narrative retired.
-- Run `build_track` with `track_source = 'gps'` → `lap_sim_v01..v05` on the GPS track. Expected: v05 moves toward the ±1% target as peak-κ preservation climbs from 76% to ≥90%. Capture deltas in Entry 017.
-- Begin the calibration sweep queued from Entry 015: `h_cog ∈ [0.28, 0.34] m` and `brake_bias_f ∈ [0.53, 0.61]`, minimising lap-time delta and sector-by-sector Δspeed on v05. One-pager under `06_reports/`.
-- Cross-check: re-run `diagnose_brake_v04` against `sim05` — the struct fields it reads (`a_brake`, `v`, `dist`, `Fz_f_forward`, `Fz_r_forward`) are all present in `sim05`, so the diagnostic should work unchanged and give us a v04-vs-v05 brake-spike comparison for free.
+**Phase 5 plan (resequenced 2026-04-21 — see Entry 016 addendum below):**
+
+1. **GPS track-source experiment** — `build_track` with `track_source = 'gps'` → rerun v01..v05. Capture peak κ, lap times, per-sector Δv vs telemetry source. Decide default source. Entry 017.
+2. **Sector analysis** on the chosen source. Tag N24 sectors (low/mid/high-speed, straight/technical). Tabulate Δt / Δv per sector on v05. Build reusable `correlate_sim.m`. Entry 018.
+3. **Sensitivity matrix** — 1D sweeps around current values: `h_cog`, `brake_bias_f`, `Cl`, `aero_balance_f`, `mu_0`, `k_load_sens`, `K_ARB_f/_r`, `weight_dist_f`. Report Δt per ±1 unit. Entry 019.
+4. **Calibration sweep** — 2D: `h_cog ∈ [0.40, 0.52] m` × `brake_bias_f ∈ [0.53, 0.61]`. Minimise Δt + sector Δv. Charter check (±1 %). Entry 020. *[typo-corrected bounds; Entry 015/012/013/014 all used this range — the `[0.28, 0.34]` written earlier in this entry was wrong, GT3 CoG sits ~0.46 m.]*
+5. **Setup optimisation study** — ARB balance and aero balance on the calibrated model. Heatmap. Portfolio deliverable. Entry 021.
+6. **Portfolio write-up** — exec summary in `06_reports/`, linking to logbook and tech reference. Not a duplicate; a navigation layer.
+
+**Standing instrumentation:** re-run `diagnose_brake_v04` against `sim05` (struct fields match) for a v04-vs-v05 brake-spike comparison whenever a sweep finishes.
 
 ---
 
