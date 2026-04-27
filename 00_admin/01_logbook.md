@@ -12,6 +12,37 @@
 
 ---
 
+## Entry 018 — 2026-04-21 — Phase 5 Steps 5–6: setup study confirms physics-bound residual; portfolio write-up shipped
+
+**Phase:** 5 (Calibration and analysis — closing)
+
+**Done:**
+- **Step 5 — setup optimisation study.** Built `05_studies/phase5_step5_setup_study.m`. 5×5 grid on `aero_balance_f × roll_dist_f`, telemetry source, on the calibrated baseline (mu_0 = 1.70, load_sens_k = 4.4e-5 [CAL] from Entry 017). `roll_dist_f` swept by re-deriving `K_ARB_f` and `K_ARB_r` at *fixed total* roll stiffness (`K_total = K_roll_f + K_roll_r`) — the canonical race-engineering knob, isolating balance from total-grip changes. Cost metric: per-sector RMS Δt. 25 v05 runs.
+- **Step 6 — portfolio write-up.**
+  - Wrote `06_reports/n24_portfolio_summary.md` — single-doc navigation layer over the logbook and tech reference. Sections: exec summary, scope (in/out), methodology (fidelity ladder, dual track source, RMS objective, solver), results (lap-time ladder, calibration heatmap, sensitivity tornado, sector signature), key engineering decisions, known limits / future work, repo navigation.
+  - Wrote `06_reports/export_figures.m` — single-shot script that produces four publication-quality PNGs from the saved Phase 5 results: `fig_headline_speed_overlay.png`, `fig_calibration_heatmap.png`, `fig_sensitivity_tornado.png`, `fig_sector_signature.png`.
+  - Generated `06_reports/n24_portfolio_summary.docx` from the markdown source via docx-js. Embeds the four figures byte-for-byte from the export step. US Letter, Arial 11 pt body, blue heading hierarchy, footer page numbers, validated clean. 263 KB, 182 paragraphs.
+
+**Found:**
+- **Step 5 best-fit setup:** `aero_balance_f = 0.39` (was 0.43), `roll_dist_f = 0.5000` (was 0.5625). Lap = 8:10.539, Δ = −0.328 s (−0.07 %). Marginal improvement on the calibrated baseline (−0.80 s, −0.16 %).
+- **Both knobs landed at the lower edge of the sweep grid** — same boundary signal as Step 4. True optimum may sit slightly further, but the marginal gain is small and the sector signature does not change at the boundary, so we accept rather than chase.
+- **Sector signature is robust to setup change.** Pre-sweep (calibrated): S1 −1.96 / S2 +1.39 / S3 +1.92 / S4 −0.94 / S5 +0.52 / S6 −1.72. Best-setup: S1 −1.83 / S2 +1.48 / S3 +1.99 / S4 −0.89 / S5 +0.62 / S6 −1.70. Sector RMS unchanged at ~1.50 s. **Read: the high-speed-fast / technical-slow signature is physics-bound, not setup-bound.**
+
+**Think:**
+- **The single most useful result of the whole project sits in Step 5, not Step 4.** Step 4 hits the charter; Step 5 explains *why the residual cannot be hit harder without changing physics*. A recruiter who skims the report will see the −0.16 % charter pass and infer competence. A recruiter who reads it carefully will see the setup-invariant signature and infer methodology. The latter is what separates a portfolio piece from a homework submission.
+- **Why the new setup was not pushed into `amg_gt3_params.m`.** Setup studies and calibration are distinct concepts. Calibration adjusts model parameters that have *physical truth* (μ₀ is a property of the tyre); setup studies vary parameters that are *operational choices* (a team can run any aero balance they want). Mixing them in the parameter file would erase that distinction. The baseline setup (aero_balance_f = 0.43, roll_dist_f = 0.5625) is what the iRacing reference driver was running, so it stays.
+- **Markdown / figure / docx pipeline as a future habit.** Three separate artefacts from one source: markdown for the GitHub-renderable canonical version, an export script that produces figure PNGs deterministically from saved `.mat` results, and a docx generator that compiles markdown + figures into a recruiter-friendly attachment. Reproducible at any point — re-run the figure script after a model change, re-run the docx generator, get a fresh polished package without touching prose.
+- **Phase 5 is closed.** Charter passes, sector signature explains the residual, full audit chain from telemetry to portfolio doc is in place. Next phase is genuinely outside QSS — Pacejka, transient suspension, differential — and lives as future work in the write-up rather than as Phase 6 of *this* project.
+
+**Next:**
+- Phase 5 closing touches: README.md update (current charter result, link to portfolio doc, mark Phase 5 complete). One short PR, no logic changes.
+- Optional: re-export `n24_portfolio_summary.docx` to PDF (LibreOffice headless) and post both the .md and .pdf to a public GitHub repo for the portfolio link on the CV.
+- Future-work backlog (out of this project's scope): Pacejka magic-formula tyre, transient suspension multibody add-on, differential modelling, multi-lap telemetry median-filter on the curvature signal.
+
+**Retraction / re-ordering:** none. Entry 017's Next list called for Step 5 (setup study) and Step 6 (write-up); both are completed by this entry.
+
+---
+
 ## Entry 017 — 2026-04-21 — Phase 5 Steps 1–4: GPS experiment, sector analysis, sensitivity, calibration → charter PASS (−0.16 %)
 
 **Phase:** 5 (Calibration and analysis)
