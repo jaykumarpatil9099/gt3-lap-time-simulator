@@ -12,6 +12,28 @@
 
 ---
 
+## Entry 019 — 2026-04-21 — Documentation finalisation: charter closed, design note 001 closed, README refreshed
+
+**Phase:** 5 (Calibration and analysis — closed)
+
+**Done:**
+- `README.md` rewritten end-to-end: Phase 5 status, calibrated v05 lap (8:10.539, −0.16 %), full fidelity-ladder table including the calibrated row, Phase-5 study-step table, repo layout updated (`07_portfolio/` retired in favour of `06_reports/`), portfolio doc links at the top, end-to-end run sequence, future-work table.
+- `00_admin/00_project_charter.md`: §9 "Outcome — 2026-04-21" appended. Each success criterion crossed off with the artefact that satisfies it. Charter version bumped to 1.0 (closed). Documented the two scope-shifts that happened during execution: v05 escalated from stretch to working model; `07_portfolio/` consolidated into `06_reports/`.
+- `00_admin/02_design_note_001_fidelity.md`: "Outcome" section appended. Per-rung lap time + Δ + gate-result table; one-line teach-back for what each rung is worth at N24; status updated to "Accepted — outcome appended 2026-04-21 (charter closed)".
+
+**Found:**
+- The fidelity ladder taught the project's most quotable physics result: "v04 → v05 lateral transfer is worth +11.7 s on this car at this track, exactly the −2·k·δ² penalty predicted on paper." That number is now the headline on the design note.
+- Charter scope vs delivered scope diverged in two places (v05 from stretch to working; reports folder consolidation). Both are recorded in the Outcome section so future readers can see the trajectory.
+
+**Think:**
+- Closing the charter is the moment the project flips from "in flight" to "deliverable". Anything done from here is *extension*, not completion. That language change matters for how the project is pitched: "I built and validated a calibrated GT3 lap simulator; here are the extensions I'm planning" reads stronger than "I'm working on a lap simulator."
+- The README is now the front door of the repo. It links to the portfolio doc as the "read this first" pointer and back to the logbook / tech ref as deeper reading. That two-layer navigation is what a recruiter scanning a GitHub repo actually clicks through.
+
+**Next:**
+- Project closure committed. Pause for the user's call on the extension direction. Candidates ranked by impact-per-effort in the README's future-work table; user's stated preference is to learn the existing codebase deeply before extending. That is the right call — extension before fluency leads to drift.
+
+---
+
 ## Entry 018 — 2026-04-21 — Phase 5 Steps 5–6: setup study confirms physics-bound residual; portfolio write-up shipped
 
 **Phase:** 5 (Calibration and analysis — closing)

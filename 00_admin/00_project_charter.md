@@ -2,7 +2,7 @@
 
 **Owner:** Jaykumar Patil
 **Started:** 2026-04-15
-**Version:** 0.1 (living document — update as scope evolves)
+**Version:** 1.0 (closed — see §9 Outcome)
 
 ---
 
@@ -73,3 +73,29 @@ The project is considered complete when ALL of the following are true:
 - Every model version is frozen before the next one starts.
 - Raw data is never modified — only processed copies are.
 - "It works on my machine" is not good enough; scripts must run from a clean state.
+
+---
+
+## 9. Outcome — 2026-04-21 (charter CLOSED)
+
+**Charter status: PASS.**
+
+| Success criterion | Result |
+|---|---|
+| MATLAB model runs end-to-end on the N24 layout | Pass — solvers v01..v05 all run from `startup_project` → `import_reference_lap` → `build_track` → `lap_sim_v0X` |
+| Lap time within ±1.0 % of reference | **Pass — calibrated v05 = 8:10.539, Δ = −0.80 s (−0.16 %) vs reference 8:11.341** |
+| Channel-by-channel correlation shows sensible agreement | Pass — sector-level Δt and Δv tables produced by `04_correlation/correlate_sim.m`; no gross structural errors |
+| At least three engineering studies, each documented | Pass — Phase 5 Steps 1–5 are five studies in `05_studies/`, results saved as `.mat` and summarised in logbook entries 017, 018 |
+| Portfolio write-up exists | Pass — `06_reports/n24_portfolio_summary.md` (markdown) + `n24_portfolio_summary.docx` (polished, 4 figures embedded). The `07_portfolio/` folder named in §6.5 was consolidated into `06_reports/` during Phase 5; the success criterion is satisfied by `06_reports/n24_portfolio_summary.*` |
+
+### What changed from the original plan
+
+- v05 was originally listed as a *stretch* goal. It was built and calibrated; it is the version against which the charter is evaluated. v04's pre-v05 charter pass would have required calibration on parameters with combined leverage of ~2.4 s, which Step 3 sensitivity analysis showed to be physically dishonest — see logbook Entry 017.
+- Reports landed in `06_reports/` instead of a separate `07_portfolio/`. Single folder for all narrative output, easier to navigate.
+- Two track sources (telemetry-derived racing line, GPS-derived geometric centreline) were built and used for different questions — telemetry for calibration, GPS for sensitivity / setup study. This was a Phase 5 decision, not foreseen in the charter.
+
+### What is documented as future work, not charter scope
+
+Pacejka tyre, transient suspension, differential, multi-lap IBT loader, second car/track. All listed in the portfolio summary §6 and the README "Future work" table. Not required for charter pass; queued for v06+.
+
+**Charter version:** 1.0 (closed)
