@@ -42,6 +42,17 @@ desktop.ini      # Windows
 *.mp4
 *.mov
 
+# --- MATLAB workspace autosave ---
+# matlab.mat at the project root is MATLAB's automatic workspace dump.
+# It's huge, binary, and changes every session. Always regenerable.
+matlab.mat
+
+# --- Jekyll / GitHub Pages build output ---
+# When the Pages site is built locally for testing, it dumps into _site/.
+# That directory is generated, not source.
+docs/_site/
+.jekyll-cache/
+
 # --- Sensitive ---
 # (none yet, but a placeholder. Never commit credentials, API keys, or
 # anything you wouldn't show in an interview.)

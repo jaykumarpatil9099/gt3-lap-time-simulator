@@ -1,13 +1,15 @@
 # Nürburgring 24h Lap Time Simulator — Mercedes-AMG GT3
 
-A MATLAB-based quasi-steady-state (QSS) lap time simulator for the Mercedes-AMG GT3 around the Nürburgring 24h (VLN/NLS combined) layout, calibrated against iRacing telemetry processed in Cosworth PI Toolbox.
+> 🌐 **Live project page:** _coming soon — will be at_ `https://JAYKUMAR-USERNAME.github.io/REPO-NAME/` _once GitHub Pages is enabled._
+
+A MATLAB-based quasi-steady-state (QSS) lap time simulator for the Mercedes-AMG GT3 around the Nürburgring 24h (VLN/NLS combined) layout, calibrated against iRacing telemetry read directly from `.ibt` files.
 
 **Author:** Jaykumar Patil
-**Status:** Phase 5 complete — charter PASS at −0.16 % vs reference.
-**Calibrated lap time:** **8:10.539** (v05, Δ −0.80 s vs reference 8:11.341)
+**Status:** Phase 6 complete — charter PASS at +0.04 % vs reference.
+**Calibrated lap time:** **8:11.521** (v05, Δ +0.18 s vs reference 8:11.341)
 **Toolchain:** MATLAB R2024b · iRacing · Cosworth PI Toolbox Pro
 
-> **Read this first:** [`06_reports/n24_portfolio_summary.md`](06_reports/n24_portfolio_summary.md) — five-page executive summary of the whole project. The same content as a polished Word doc lives at [`06_reports/n24_portfolio_summary.docx`](06_reports/n24_portfolio_summary.docx).
+> **Read this first:** [`06_reports/n24_portfolio_summary.md`](06_reports/n24_portfolio_summary.md) — five-page executive summary of the whole project. The same content as a polished Word doc lives at [`06_reports/n24_portfolio_summary.docx`](06_reports/n24_portfolio_summary.docx). The same content rendered as a website is in [`docs/index.md`](docs/index.md).
 
 ---
 
@@ -42,7 +44,7 @@ Each model version lives in its own subfolder under `03_models/` with its own so
 | v03 load sensitivity | μ(Fz) per-tyre grip coefficient | Within 2 % | 7:46.382 |
 | v04 longitudinal weight transfer | Per-axle Fz, friction circle per axle, brake-bias min | Within 1 % | 7:50.704 |
 | v05 lateral weight transfer | Per-tyre Fz with ARB roll-stiffness redistribution; per-tyre μ(Fz) | Within 1 % (charter) | 8:02.424 (uncalibrated) |
-| **v05 calibrated** | Tyre `μ_0` and `load_sens_k` calibrated against ref lap | **±1 % charter** | **8:10.539, −0.16 %** ✓ |
+| **v05 calibrated (Phase 6, IBT)** | Tyre `μ_0 = 1.75` and `load_sens_k = 5.5e-5` against multi-lap IBT | **±1 % charter** | **8:11.521, +0.04 %** ✓ |
 
 ## Phase 5 — calibration and analysis
 
@@ -53,7 +55,7 @@ Charter passed in Phase 5 via four structured studies in `05_studies/`:
 | 1 | `phase5_step1_gps_vs_telemetry.m` | Lap times on both track sources | Telemetry for calibration, GPS for sensitivity (peak κ preservation 76 % vs 94 %) |
 | 2 | `phase5_step2_sector_analysis.m` | Sectorised Δt + Δv tables | Built `correlate_sim.m`; residual concentrated in high-speed sectors |
 | 3 | `phase5_step3_sensitivity.m` | 9-parameter sensitivity tornado | `mu_0` and `load_sens_k` dominate (≈ 20 s and 16 s leverage) |
-| 4 | `phase5_step4_calibration.m` | 5×5 sweep on (`mu_0`, `load_sens_k`) → calibrated tyre params | Charter PASS at −0.16 %, sector RMS 1.49 s |
+| 4 | `phase5_step4_calibration.m` | 5×5 sweep on (`mu_0`, `load_sens_k`) → tyre params (re-run in Phase 6) | Charter PASS, sector RMS ≈ 1.5 s |
 | 5 | `phase5_step5_setup_study.m` | 5×5 setup heatmap (`aero_balance_f` × `roll_dist_f`) | Residual signature is **physics-bound**, not setup-bound |
 
 The detailed write-up lives in `06_reports/n24_portfolio_summary.md` and the corresponding `.docx`.

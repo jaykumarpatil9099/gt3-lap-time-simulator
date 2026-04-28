@@ -1,0 +1,32 @@
+# Jekyll config for the GitHub Pages site.
+#
+# This file tells GitHub Pages how to build the static site that lives under
+# https://<username>.github.io/<repo-name>/. Only docs/ is the source — the
+# rest of the repo is left alone.
+#
+# Edit the URL fields below ONCE you have created the GitHub repo.
+
+# ---- Site identity (shown in the header banner and browser tab) ----
+title:       N24 Lap Time Simulator
+description: Calibrated quasi-steady-state lap simulator for the Mercedes-AMG GT3 at the Nürburgring 24h. MATLAB, validated against iRacing telemetry, charter pass at +0.04 % vs reference.
+
+# ---- Theme ----
+# 'jekyll-theme-cayman' is one of the GitHub-supported themes. Clean,
+# typography-first, looks professional on a CV link.
+theme: jekyll-theme-cayman
+
+# ---- Author ----
+author:
+  name:  Jaykumar Patil
+  email: jaykumarpatil9099@gmail.com
+
+# ---- Markdown processor ----
+markdown: kramdown
+
+# ---- What to include / exclude when Jekyll builds the site ----
+# Default Jekyll exclusions remove files starting with _ but keep _config.yml.
+# We don't need any non-default exclusions yet.
+
+# ---- SEO / social-card metadata ----
+# Helps the page look better when someone shares the link on LinkedIn/Twitter.
+lang: en
