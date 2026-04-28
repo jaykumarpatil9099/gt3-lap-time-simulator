@@ -145,19 +145,23 @@ dist_each = dist_each(keep);
 fprintf('  after dropping <1 s segments: %d laps\n', numel(laps));
 
 %% ---- Final clean-lap classification ---------------------------------
+%  A lap is clean if it: (a) is not the out-/in-lap, (b) never touched
+%  pit road, (c) covered ~full track distance, (d) had real throttle
+%  application, and (e) is within 5 % of the fastest lap in the session.
+%  (e) replaces an earlier ±25 %-of-median rule that let through laps with
+%  off-track incidents (e.g. a 9:55 lap on N24 sat just inside the wide
+%  median window). "Within 5 % of fastest" is the standard race-engineer
+%  consistency band for clean driving on a long lap.
 median_d = median(dist_each);
-median_t = median([laps.lap_time]);
-for i = 1:numel(laps)
-    not_first_or_last = (i > 1) && (i < numel(laps));
-    pit_free          = ~laps(i).clean_flags.on_pit_during_lap;
-    full_distance     = abs(dist_each(i) - median_d) / median_d < 0.05;
-    threw             = laps(i).clean_flags.adequate_throttle;
-    % Time sanity: must be within ±25 % of median lap time. Catches
-    % half-laps and slow-down laps that pass the distance check on a
-    % glitched LapDist signal.
-    reasonable_time   = abs(laps(i).lap_time - median_t) / median_t < 0.25;
-    laps(i).clean = not_first_or_last && pit_free && ...
-                    full_distance && threw && reasonable_time;
+fastest_t = min([laps.lap_time]);
+for ix = 1:numel(laps)
+    not_first_or_last = (ix > 1) && (ix < numel(laps));
+    pit_free          = ~laps(ix).clean_flags.on_pit_during_lap;
+    full_distance     = abs(dist_each(ix) - median_d) / median_d < 0.05;
+    threw             = laps(ix).clean_flags.adequate_throttle;
+    fast_enough       = (laps(ix).lap_time - fastest_t) / fastest_t < 0.05;
+    laps(ix).clean = not_first_or_last && pit_free && ...
+                     full_distance && threw && fast_enough;
 end
 
 %% ---- Report ----------------------------------------------------------

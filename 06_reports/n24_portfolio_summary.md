@@ -9,10 +9,11 @@
 | Metric | Result |
 | --- | --- |
 | Reference lap (driver) | 8:11.341 |
-| Calibrated v05 lap | **8:10.539** |
-| Delta vs reference | **−0.16 % (−0.80 s)** |
+| Calibrated v05 lap | **8:11.521** |
+| Delta vs reference | **+0.04 % (+0.18 s)** |
 | Charter target | ±1.0 % |
 | **Charter status** | **PASS** |
+| Calibrated against | Multi-lap iRacing IBT (Phase 6) |
 
 ---
 
@@ -97,7 +98,7 @@ The solver walks the track in the distance domain at 1 m spacing (~25 200 points
 | v03 (+ load sens) | 7:46.382 | −25.0 s | −1.2 s |
 | v04 (+ long transfer) | 7:50.704 | −20.6 s | +4.3 s |
 | v05 (+ lateral transfer + ARB) | 8:02.424 | −8.9 s (−1.81 %) | +11.7 s |
-| **v05 calibrated** | **8:10.539** | **−0.80 s (−0.16 %)** | — |
+| **v05 calibrated** (Phase 6, IBT) | **8:11.521** | **+0.18 s (+0.04 %)** | — |
 
 The v05 → v04 cost of +11.7 s sits inside the 8–15 s range expected for lateral transfer on a GT3 at this track — a strong physics-gate sanity check that the new code behaves correctly before any calibration.
 
@@ -107,7 +108,9 @@ A 5×5 sweep on `mu_0 × load_sens_k`, telemetry source, sector-RMS objective.
 
 ![Calibration heatmap — Step 4](figures/fig_calibration_heatmap.png)
 
-The optimum landed at `mu_0 = 1.70` and `load_sens_k = 4.4 × 10⁻⁵`. Both `[EST]` flags in the pre-calibration parameter file are now replaced with `[CAL]` and a provenance comment block citing the entry that produced them.
+The Phase 6 optimum (post-bug-fix; see retraction box below) landed at `mu_0 = 1.75` and `load_sens_k = 5.5 × 10⁻⁵`, the *interior* cell of a flat diagonal valley five cells wide. The two parameters trade off — higher baseline `μ` with steeper load drop equates to lower baseline `μ` with flatter drop at race-load Fz — so the calibration sits in a valley rather than a single sharp minimum. We pick the interior cell over the edge cell as the more defensible point estimate; the edge cell would imply the true optimum is outside our search window. Both `[EST]` flags are now `[CAL]` with a provenance comment block citing logbook Entry 020.
+
+> **Retraction (added 2026-04-21).** A previous version of this document reported `mu_0 = 1.70`, `load_sens_k = 4.4 × 10⁻⁵`, calibrated against a single-lap PI Toolbox `.xls` export (Phase 5). That result was contaminated by a workspace-leak bug — the v05 solver leaks loop counters `i` and `j` through MATLAB's `evalc()`, which caused 24 of 25 grid cells to never be written; the reported "best" was the first-zero index. The cell happened to sit at the lower-grip corner of the same flat valley, so the lap was directionally correct, but the result was not the validated minimum the report claimed. Phase 6 fixes the bug, re-runs the sweep against a multi-lap IBT-derived reference, and supersedes the Phase 5 numbers with `mu_0 = 1.75`, `load_sens_k = 5.5 × 10⁻⁵`. The charter still passes (now at +0.04 %).
 
 ### 4.3 Sensitivity ranking (Step 3)
 
@@ -185,4 +188,4 @@ For depth, follow the chain below.
 
 ---
 
-*Last revised: 2026-04-21 — covers Phase 5 Steps 1–5. See logbook Entry 017 for the underlying session record.*
+*Last revised: 2026-04-21 — covers Phase 5 Steps 1–5 plus Phase 6 (multi-lap IBT pipeline + recalibration). See logbook Entry 020 for the most recent record; entries 017 and 018 cover the original Phase 5 work.*

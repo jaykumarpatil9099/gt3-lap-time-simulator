@@ -68,13 +68,14 @@ secrms_grid = zeros(Na, Nr);
 
 fprintf('Running %d v05 sims...\n', Na*Nr);
 t0 = tic;
-for i = 1:Na
-    for j = 1:Nr
+% NOTE: lap_sim_v05 leaks 'i' and 'j' through evalc(); use ii/jj.
+for ii = 1:Na
+    for jj = 1:Nr
         car = car_baseline;
-        car.aero_balance_f = aero_vals(i);
+        car.aero_balance_f = aero_vals(ii);
 
         % Reconstruct ARB rates from desired roll_dist_f
-        rd  = roll_vals(j);
+        rd  = roll_vals(jj);
         Krf = rd        * K_total;
         Krr = (1 - rd)  * K_total;
         car.suspension.K_roll_f    = Krf;
@@ -85,13 +86,13 @@ for i = 1:Na
         car.suspension.roll_dist_r = 1 - rd;
 
         evalc('lap_sim_v05;');
-        c = correlate_sim(sim05, track, sectors, '', false);
-        lap_grid(i,j)    = sim05.lap_time;
-        dlap_grid(i,j)   = sim05.lap_time - ref_lap;
-        secrms_grid(i,j) = sqrt(mean([c.per_sector.dt_sector].^2));
-        fprintf('  aero=%.2f roll=%.4f  lap=%7.3f  Δ=%+6.3f  rms=%5.3f\n', ...
-                aero_vals(i), roll_vals(j), ...
-                lap_grid(i,j), dlap_grid(i,j), secrms_grid(i,j));
+        evalc('c = correlate_sim(sim05, track, sectors, '''', false);');
+        lap_grid(ii,jj)    = sim05.lap_time;
+        dlap_grid(ii,jj)   = sim05.lap_time - ref_lap;
+        secrms_grid(ii,jj) = sqrt(mean([c.per_sector.dt_sector].^2));
+        fprintf('  aero=%.2f roll=%.4f  lap=%7.3f  d=%+6.3f  rms=%5.3f\n', ...
+                aero_vals(ii), roll_vals(jj), ...
+                lap_grid(ii,jj), dlap_grid(ii,jj), secrms_grid(ii,jj));
     end
 end
 car = car_baseline;
@@ -99,25 +100,25 @@ fprintf('\nElapsed: %.1f s\n', toc(t0));
 
 %% ---- Find best ---------------------------------------------------------
 [~, idx_rms] = min(secrms_grid(:));
-[i_r, j_r]   = ind2sub([Na Nr], idx_rms);
+[ir, jr]   = ind2sub([Na Nr], idx_rms);
 [~, idx_lap] = min(abs(dlap_grid(:)));
-[i_l, j_l]   = ind2sub([Na Nr], idx_lap);
+[il, jl]   = ind2sub([Na Nr], idx_lap);
 
 fprintf('\n=== Best by sector_rms (recommended) ===\n');
 fprintf('  aero_balance_f = %.2f, roll_dist_f = %.4f\n', ...
-        aero_vals(i_r), roll_vals(j_r));
+        aero_vals(ir), roll_vals(jr));
 fprintf('  lap = %.3f s   Δ = %+.3f s (%+.2f%%)   sector_rms = %.3f s\n', ...
-        lap_grid(i_r,j_r), dlap_grid(i_r,j_r), ...
-        100*dlap_grid(i_r,j_r)/ref_lap, secrms_grid(i_r,j_r));
+        lap_grid(ir,jr), dlap_grid(ir,jr), ...
+        100*dlap_grid(ir,jr)/ref_lap, secrms_grid(ir,jr));
 fprintf('  vs baseline: Δlap = %+.3f s, Δsector_rms = %+.3f s\n', ...
-        lap_grid(i_r,j_r) - baseline_lap, ...
-        secrms_grid(i_r,j_r) - baseline_secrms);
+        lap_grid(ir,jr) - baseline_lap, ...
+        secrms_grid(ir,jr) - baseline_secrms);
 
 fprintf('\n=== Best by |Δlap| ===\n');
 fprintf('  aero_balance_f = %.2f, roll_dist_f = %.4f\n', ...
-        aero_vals(i_l), roll_vals(j_l));
+        aero_vals(il), roll_vals(jl));
 fprintf('  lap = %.3f s   Δ = %+.3f s   sector_rms = %.3f s\n', ...
-        lap_grid(i_l,j_l), dlap_grid(i_l,j_l), secrms_grid(i_l,j_l));
+        lap_grid(il,jl), dlap_grid(il,jl), secrms_grid(il,jl));
 
 %% ---- Heatmaps ---------------------------------------------------------
 figure('Name','Step 5 setup study','NumberTitle','off', ...
@@ -129,7 +130,7 @@ colorbar; xlabel('roll\_dist\_f [-]'); ylabel('aero\_balance\_f [-]');
 title('Δlap vs ref [s]');
 set(gca,'XTick',roll_vals,'YTick',aero_vals);
 hold on;
-plot(roll_vals(j_l), aero_vals(i_l), 'kp','MarkerSize',14,'MarkerFaceColor','y');
+plot(roll_vals(jl), aero_vals(il), 'kp','MarkerSize',14,'MarkerFaceColor','y');
 plot(0.5625, 0.43, 'wo','MarkerSize',10,'LineWidth',2);  % baseline marker
 
 subplot(1,2,2);
@@ -138,13 +139,13 @@ colorbar; xlabel('roll\_dist\_f [-]'); ylabel('aero\_balance\_f [-]');
 title('Sector RMS Δt [s]');
 set(gca,'XTick',roll_vals,'YTick',aero_vals);
 hold on;
-plot(roll_vals(j_r), aero_vals(i_r), 'kp','MarkerSize',14,'MarkerFaceColor','r');
+plot(roll_vals(jr), aero_vals(ir), 'kp','MarkerSize',14,'MarkerFaceColor','r');
 plot(0.5625, 0.43, 'wo','MarkerSize',10,'LineWidth',2);
 
 %% ---- Sector report at best fit ----------------------------------------
 fprintf('\n=== Sector report at best-fit setup ===\n');
-car.aero_balance_f = aero_vals(i_r);
-rd = roll_vals(j_r);
+car.aero_balance_f = aero_vals(ir);
+rd = roll_vals(jr);
 car.suspension.K_roll_f    = rd        * K_total;
 car.suspension.K_roll_r    = (1 - rd)  * K_total;
 car.suspension.K_ARB_f     = car.suspension.K_roll_f - car.suspension.K_tire_f;
@@ -153,7 +154,7 @@ car.suspension.roll_dist_f = rd;
 car.suspension.roll_dist_r = 1 - rd;
 evalc('lap_sim_v05;');
 corr_best = correlate_sim(sim05, track, sectors, ...
-    sprintf('Step 5 best: aero=%.2f roll=%.4f', aero_vals(i_r), rd), true);
+    sprintf('Step 5 best: aero=%.2f roll=%.4f', aero_vals(ir), rd), true);
 car = car_baseline;
 
 %% ---- Save -------------------------------------------------------------
@@ -166,11 +167,11 @@ result.dlap_grid       = dlap_grid;
 result.secrms_grid     = secrms_grid;
 result.baseline_lap    = baseline_lap;
 result.baseline_secrms = baseline_secrms;
-result.best_rms        = struct('aero_balance_f',aero_vals(i_r), ...
-                                'roll_dist_f',roll_vals(j_r), ...
-                                'lap',lap_grid(i_r,j_r), ...
-                                'dlap',dlap_grid(i_r,j_r), ...
-                                'secrms',secrms_grid(i_r,j_r));
+result.best_rms        = struct('aero_balance_f',aero_vals(ir), ...
+                                'roll_dist_f',roll_vals(jr), ...
+                                'lap',lap_grid(ir,jr), ...
+                                'dlap',dlap_grid(ir,jr), ...
+                                'secrms',secrms_grid(ir,jr));
 result.corr_best       = corr_best;
 
 outdir  = fileparts(mfilename('fullpath'));

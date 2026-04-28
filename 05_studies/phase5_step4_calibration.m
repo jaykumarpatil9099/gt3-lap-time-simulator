@@ -53,22 +53,21 @@ secrms_grid = zeros(Nmu, Nk);
 fprintf('\nBaseline ref lap: %.3f s. Running %d sims...\n\n', ref_lap, Nmu*Nk);
 
 t0 = tic;
-for i = 1:Nmu
-    for j = 1:Nk
+% NOTE: lap_sim_v05 leaks 'i' and 'j' through evalc(); use ii/jj.
+for ii = 1:Nmu
+    for jj = 1:Nk
         car = car_baseline;
-        car.tyre.mu_0        = mu0_vals(i);
-        car.tyre.load_sens_k = ksk_vals(j);
+        car.tyre.mu_0        = mu0_vals(ii);
+        car.tyre.load_sens_k = ksk_vals(jj);
         evalc('lap_sim_v05;');
-        c = correlate_sim(sim05, track, sectors, ...
-                          sprintf('mu0=%.2f k=%.2g',mu0_vals(i),ksk_vals(j)), ...
-                          false);
-        lap_grid(i,j)    = sim05.lap_time;
-        dlap_grid(i,j)   = sim05.lap_time - ref_lap;
-        sec_dt           = [c.per_sector.dt_sector];
-        secrms_grid(i,j) = sqrt(mean(sec_dt.^2));
-        fprintf('  mu0=%.2f  k=%5.1e  lap=%7.3f  Δ=%+6.3f  rms=%5.3f\n', ...
-                mu0_vals(i), ksk_vals(j), lap_grid(i,j), ...
-                dlap_grid(i,j), secrms_grid(i,j));
+        evalc('c = correlate_sim(sim05, track, sectors, sprintf(''mu0=%.2f k=%.2g'',mu0_vals(ii),ksk_vals(jj)), false);');
+        lap_grid(ii,jj)    = sim05.lap_time;
+        dlap_grid(ii,jj)   = sim05.lap_time - ref_lap;
+        sec_dt             = [c.per_sector.dt_sector];
+        secrms_grid(ii,jj) = sqrt(mean(sec_dt.^2));
+        fprintf('  mu0=%.2f  k=%5.1e  lap=%7.3f  d=%+6.3f  rms=%5.3f\n', ...
+                mu0_vals(ii), ksk_vals(jj), lap_grid(ii,jj), ...
+                dlap_grid(ii,jj), secrms_grid(ii,jj));
     end
 end
 car = car_baseline;
@@ -77,22 +76,22 @@ fprintf('\nElapsed: %.1f s\n', toc(t0));
 %% ---- Find best fit ---------------------------------------------------
 [~, idx_lap] = min(abs(dlap_grid(:)));
 [~, idx_rms] = min(secrms_grid(:));
-[i_l, j_l] = ind2sub([Nmu Nk], idx_lap);
-[i_r, j_r] = ind2sub([Nmu Nk], idx_rms);
+[il, jl] = ind2sub([Nmu Nk], idx_lap);
+[ir, jr] = ind2sub([Nmu Nk], idx_rms);
 
 charter_pct = 100 * dlap_grid / ref_lap;
 
 fprintf('\n=== Best by |Δlap| ===\n');
-fprintf('  mu_0 = %.2f, load_sens_k = %.2g\n', mu0_vals(i_l), ksk_vals(j_l));
+fprintf('  mu_0 = %.2f, load_sens_k = %.2g\n', mu0_vals(il), ksk_vals(jl));
 fprintf('  Δlap = %+.3f s (%+.2f%%)   sector_rms = %.3f s\n', ...
-        dlap_grid(i_l,j_l), charter_pct(i_l,j_l), secrms_grid(i_l,j_l));
+        dlap_grid(il,jl), charter_pct(il,jl), secrms_grid(il,jl));
 
 fprintf('\n=== Best by sector_rms (recommended) ===\n');
-fprintf('  mu_0 = %.2f, load_sens_k = %.2g\n', mu0_vals(i_r), ksk_vals(j_r));
+fprintf('  mu_0 = %.2f, load_sens_k = %.2g\n', mu0_vals(ir), ksk_vals(jr));
 fprintf('  Δlap = %+.3f s (%+.2f%%)   sector_rms = %.3f s\n', ...
-        dlap_grid(i_r,j_r), charter_pct(i_r,j_r), secrms_grid(i_r,j_r));
+        dlap_grid(ir,jr), charter_pct(ir,jr), secrms_grid(ir,jr));
 
-charter_pass = abs(charter_pct(i_r,j_r)) <= 1.0;
+charter_pass = abs(charter_pct(ir,jr)) <= 1.0;
 fprintf('\nCharter (±1%%): %s\n', ...
         ternary(charter_pass,'PASS','FAIL'));
 
@@ -106,7 +105,7 @@ colorbar; colormap(gca, 'parula');
 xlabel('load\_sens\_k [1/N]'); ylabel('mu\_0 [-]');
 title('Δlap vs ref [s]');
 set(gca,'XTick',ksk_vals,'YTick',mu0_vals);
-hold on; plot(ksk_vals(j_l), mu0_vals(i_l), 'kp','MarkerSize',14,'MarkerFaceColor','y');
+hold on; plot(ksk_vals(jl), mu0_vals(il), 'kp','MarkerSize',14,'MarkerFaceColor','y');
 
 subplot(1,2,2);
 imagesc(ksk_vals, mu0_vals, secrms_grid); axis xy;
@@ -114,15 +113,15 @@ colorbar; colormap(gca, 'parula');
 xlabel('load\_sens\_k [1/N]'); ylabel('mu\_0 [-]');
 title('Sector RMS Δt [s]');
 set(gca,'XTick',ksk_vals,'YTick',mu0_vals);
-hold on; plot(ksk_vals(j_r), mu0_vals(i_r), 'kp','MarkerSize',14,'MarkerFaceColor','r');
+hold on; plot(ksk_vals(jr), mu0_vals(ir), 'kp','MarkerSize',14,'MarkerFaceColor','r');
 
 %% ---- Re-run best fit with full correlation report --------------------
 fprintf('\n=== Sector report at best-fit (sector_rms) ===\n');
-car.tyre.mu_0        = mu0_vals(i_r);
-car.tyre.load_sens_k = ksk_vals(j_r);
+car.tyre.mu_0        = mu0_vals(ir);
+car.tyre.load_sens_k = ksk_vals(jr);
 evalc('lap_sim_v05;');
 corr_best = correlate_sim(sim05, track, sectors, ...
-    sprintf('Best-fit: mu0=%.2f, k=%.2g', mu0_vals(i_r), ksk_vals(j_r)), ...
+    sprintf('Best-fit: mu0=%.2f, k=%.2g', mu0_vals(ir), ksk_vals(jr)), ...
     true);
 car = car_baseline;
 
@@ -133,10 +132,10 @@ result.ksk_vals    = ksk_vals;
 result.lap_grid    = lap_grid;
 result.dlap_grid   = dlap_grid;
 result.secrms_grid = secrms_grid;
-result.best_lap    = struct('mu_0',mu0_vals(i_l),'load_sens_k',ksk_vals(j_l), ...
-                            'dlap',dlap_grid(i_l,j_l),'rms',secrms_grid(i_l,j_l));
-result.best_rms    = struct('mu_0',mu0_vals(i_r),'load_sens_k',ksk_vals(j_r), ...
-                            'dlap',dlap_grid(i_r,j_r),'rms',secrms_grid(i_r,j_r));
+result.best_lap    = struct('mu_0',mu0_vals(il),'load_sens_k',ksk_vals(jl), ...
+                            'dlap',dlap_grid(il,jl),'rms',secrms_grid(il,jl));
+result.best_rms    = struct('mu_0',mu0_vals(ir),'load_sens_k',ksk_vals(jr), ...
+                            'dlap',dlap_grid(ir,jr),'rms',secrms_grid(ir,jr));
 result.corr_best   = corr_best;
 
 outdir  = fileparts(mfilename('fullpath'));
