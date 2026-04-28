@@ -96,30 +96,47 @@ car.tyre.mu_peak = 1.60;        % [-]     Peak tyre friction coefficient        
                                  %         Pirelli DHF GT3 compound: mu ~ 1.55-1.70
                                  %         Used in v01 and v02 as constant grip limit
 
-car.tyre.mu_0 = 1.70;           % [-]     Zero-load extrapolated friction coefficient     [CAL]
+car.tyre.mu_0 = 1.75;           % [-]     Zero-load extrapolated friction coefficient     [CAL]
                                  %         For load sensitivity model (v03+).
-                                 %         CALIBRATED 2026-04-21 against telemetry reference lap
-                                 %         in phase5_step4_calibration.m. Previous [EST] value
-                                 %         was 1.85; the calibration sweep on (mu_0, load_sens_k)
-                                 %         landed at mu_0 = 1.70, load_sens_k = 4.4e-5, giving
-                                 %         v05 lap = 8:10.539 (Δ = -0.80 s, -0.16% — inside ±1%
-                                 %         charter). Best-fit minimised the per-sector RMS Δt
-                                 %         (1.49 s), not just total lap delta — the latter alone
-                                 %         can hit zero with cancelling sector errors.
-                                 %         Sweep boundary note: the optimum sat at the lower
-                                 %         edge of the grid, so the true minimum may be slightly
-                                 %         lower still. Charter is met, so we accept rather than
-                                 %         refine. See logbook Entry 017.
+                                 %
+                                 %         CALIBRATED 2026-04-21 (Phase 6) against the multi-lap
+                                 %         IBT-derived reference lap in phase6_recalibrate_ibt.m.
+                                 %         Best-fit by combined criteria on a 5×5 (mu_0, k) grid:
+                                 %         mu_0 = 1.75, load_sens_k = 5.5e-5, giving v05 lap =
+                                 %         491.521 s vs ref 491.341 s (Δ = +0.18 s, +0.04 % —
+                                 %         well inside the ±1 % charter, sector RMS = 1.506 s).
+                                 %
+                                 %         The (mu_0, k) surface has a flat diagonal valley:
+                                 %         five cells lie within 0.05 s of the global RMS minimum
+                                 %         because mu_0 and k trade off (higher baseline μ +
+                                 %         steeper drop ≈ lower μ + flatter drop at race loads).
+                                 %         When sector RMS is flat, |Δlap| is the natural
+                                 %         tiebreaker — picked the interior cell with near-zero
+                                 %         lap delta over the corner cell at the grid edge.
+                                 %
+                                 %         RETRACTION: Phase 5 Step 4 reported mu_0 = 1.70 and
+                                 %         load_sens_k = 4.4e-5 with Δlap = -0.16 %. That result
+                                 %         was contaminated by a workspace-leak bug — lap_sim_v05
+                                 %         leaks loop counters i and j through evalc(), so 24/25
+                                 %         grid cells were never written and the reported "best"
+                                 %         was just the first-zero index. The Phase 5 cell
+                                 %         (1.70, 4.4e-5) happened to sit at the lower-grip
+                                 %         corner of the same flat valley, so the calibrated
+                                 %         lap was directionally correct, but it was not the
+                                 %         validated minimum the report claimed. Phase 6 fixes
+                                 %         the bug and supersedes the Phase 5 numbers.
+                                 %         See logbook Entry 020.
 
-car.tyre.load_sens_k = 4.4e-5;  % [1/N]   Load sensitivity slope                         [CAL]
+car.tyre.load_sens_k = 5.5e-5;  % [1/N]   Load sensitivity slope                         [CAL]
                                  %         mu(Fz) = mu_0 - k * Fz
-                                 %         CALIBRATED 2026-04-21 (see mu_0 above).
+                                 %         CALIBRATED 2026-04-21 — Phase 6, see mu_0 block above.
                                  %         At Fz = 4500 N (typical corner weight):
-                                 %           mu = 1.70 - 4.4e-5 * 4500 = 1.502
+                                 %           mu = 1.75 - 5.5e-5 * 4500 = 1.503
                                  %         At Fz = 7000 N (heavy aero loading):
-                                 %           mu = 1.70 - 4.4e-5 * 7000 = 1.392
-                                 %         Lower mu_0 + flatter k vs. previous [EST] = lower
-                                 %         baseline grip but slower fall-off with load.
+                                 %           mu = 1.75 - 5.5e-5 * 7000 = 1.365
+                                 %         Mid-load μ matches the Phase 5 fit to within 0.001;
+                                 %         the difference between the two calibrations is in the
+                                 %         curve shape, not the operating-point grip.
 
 car.tyre.rolling_radius = 0.327; % [m]     Effective rolling radius (325/705-18 GT3 spec)  [IRACING]
 

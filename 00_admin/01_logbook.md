@@ -12,6 +12,49 @@
 
 ---
 
+## Entry 020 — 2026-04-21 — Phase 6 launched: multi-lap IBT pipeline, recalibrate, Phase 5 calibration retracted
+
+**Phase:** 6 (post-charter extension — multi-lap IBT pipeline)
+
+**Done:**
+- **Pure-MATLAB IBT parser.** Wrote `02_data/telemetry/processed/read_ibt.m`, a 100-line direct parser for iRacing `.ibt` telemetry files. No Python, no PI Toolbox round-trip. Reads the file header, the 286 variable headers, the embedded session-info YAML, and any subset of channels at full 60 Hz. Verified header offsets against the iRacing SDK (`irsdk_defines.h`).
+- **Multi-lap segmentation.** Wrote `import_reference_laps.m` that splits a session into per-lap structs, drops sub-second garbage segments, and flags clean laps. Robustly handles two iRacing telemetry quirks: (a) one-tick `Lap` channel glitches mid-lap by segmenting on `LapDistPct` rollovers and validating real rollovers via "ldp stays below 0.1 for 30 ticks after the drop"; (b) `LapDist` rollovers within a segment by falling back to trapezoidal integration of speed.
+- **Reference selection.** Wrote `select_reference_lap.m` with three modes: `'fastest_clean'` (default), `'fastest'`, and `'median'` (clean laps resampled onto a common 1 m grid, channel-wise median taken). Returns a struct interface-compatible with the existing single-lap `import_reference_lap.m`, so `build_track_telemetry.m` and v01..v05 work unchanged.
+- **One-command wrapper.** Wrote `import_reference_lap_ibt.m` — auto-finds the latest `.ibt` in `02_data/telemetry/raw/`, runs the full pipeline, leaves `ref` and `laps` in workspace, saves `reference_lap_ibt.mat` alongside the legacy `reference_lap.mat`.
+- **Recalibration.** Wrote `05_studies/phase6_recalibrate_ibt.m` — same 5×5 (`mu_0`, `load_sens_k`) grid as Phase 5 Step 4, run on the IBT-derived reference. Updated `02_data/car/amg_gt3_params.m` with the Phase 6 calibrated values.
+
+**Found:**
+- The existing 181 MB `.ibt` in `02_data/telemetry/raw/` contains 6 driving laps (iRacing #6..#11). Lap 10 is the 491.317 s lap — the same data point that the original PI Toolbox `.xls` export came from. Selecting `'fastest_clean'` picks lap 10, confirming the new pipeline reproduces the old reference exactly.
+- **Track length differs:** 25 175 m on IBT vs 25 206 m on the trapezoidal-integration `.xls` reference. The IBT length matches the GPS centreline (25 176 m) — the old `.xls` distance was 30 m too long because trapezoidal integration of speed × time over-shoots when the speed signal is changing fast. The IBT pipeline is the more accurate data source.
+- **Workspace-leak bug discovered.** `lap_sim_v05` uses `i` (six occurrences) and `j` (one) as loop counters. When called from a study script via `evalc('lap_sim_v05;')`, those leak into the caller's workspace. The Phase 5 Step 4 and Step 5 scripts both use outer-loop counters `i` and `j`, so after the first inner sim runs, every subsequent grid write goes to the *leaked* indices, not the actual `(i, j)` of the outer loop. 24 of 25 grid cells stayed at zero. `min(grid(:))` then found the first-zero cell, and `ind2sub` returned `(1, 1)` — making the reported "best" the first row/column of the grid by accident.
+- **Phase 5 retraction.** Phase 5 Step 4 reported `mu_0 = 1.70, load_sens_k = 4.4e-5, Δ = -0.16 %`. That cell was the artefact of the bug, not the validated minimum. The bug-fixed Phase 6 sweep produces a real grid:
+
+  ```
+              k=4.4e-5  5.0e-5  5.5e-5  6.0e-5  6.6e-5
+  mu_0=1.70   1.466*    1.590    1.907    2.344    2.959
+  mu_0=1.75   1.795     1.505    1.506    1.717    2.173
+  mu_0=1.80   2.457     1.911    1.604    1.491    1.627
+  mu_0=1.85   3.240     2.585    2.113    1.748    1.519
+  mu_0=1.90   4.044     3.353    2.811    2.324    1.851
+  ```
+
+  The surface has a flat diagonal valley — five cells with sector RMS within 0.05 s of each other. Best-by-RMS sits at the corner (1.70, 4.4e-5). Best-by-|Δlap| sits at (1.75, 5.5e-5) with Δ = +0.18 s. Picked the interior tiebreaker.
+- **New `[CAL]` values:** `mu_0 = 1.75`, `load_sens_k = 5.5e-5`. Locked into `amg_gt3_params.m` with a full provenance block citing this entry and explicitly retracting the Phase 5 numbers. Δlap = +0.18 s (+0.04 %) on the IBT reference. Sector RMS = 1.506 s. Charter still PASSES.
+
+**Think:**
+- **The bug doesn't change the headline (charter still passes), but it does change the audit story.** Phase 5's "calibrated to -0.16 %" was a coincidence of `(1, 1)` being adjacent to the actual valley. A recruiter reading the repo carefully would not catch the bug from the lap time alone, but they might catch it by noting that "best-fit at the corner of the sweep grid" is a yellow flag — the cleanest way to demonstrate engineering maturity is to call it out ourselves before they do.
+- **Why this is fortunate, not embarrassing.** Catching this on the way to extension (Phase 6) rather than after sending the portfolio out is the textbook positive outcome of doing extension work. The bug existed in code the project ran on for 30+ minutes of MATLAB time and produced "right" answers throughout — which is exactly the kind of silent failure the engineering hygiene of `[CAL]` flags + provenance comments + sector-RMS-as-objective was supposed to catch eventually. The flat-valley geometry is what masked the bug; `(1, 1)` was *near* the right answer the whole time.
+- **The `i / j` leak generalises.** The same bug pattern affects `phase5_step4_calibration.m` and `phase5_step5_setup_study.m`. They need the same rename. The fix is mechanical (i → ii, j → jj). Rerunning Phase 5 with the fix is optional — the historical numbers are now superseded by Phase 6 anyway — but the *scripts* should be patched so anyone re-running them in the future gets the right answer.
+- **What the IBT pipeline buys.** Beyond the calibration question, the new pipeline gives access to: per-tyre wear and tread-middle temps (LF/RF/LR/RR), explicit yaw/pitch/roll rate channels, full session timeline (multiple laps for median filtering, lap-degradation studies, and stint-level analysis). All channels are now exposed in `laps(k).*` and ready for v06+ work.
+
+**Next:**
+- **Patch the legacy bug in Phase 5 study scripts.** Rename `i`/`j` to `ii`/`jj` (and the `i_l/j_l` etc. derived names) in `05_studies/phase5_step4_calibration.m` and `05_studies/phase5_step5_setup_study.m`. Confirm reruns reproduce the Phase 6 numbers on the original `.xls` reference — that closes the loop.
+- **Re-render the portfolio doc (`06_reports/n24_portfolio_summary.*`)** with the Phase 6 numbers and the retraction note. The exec summary still says charter passes, so the headline holds; the calibration-block tables and the v05 calibrated row need updating.
+- **Tighten the multi-lap clean-lap filter.** Currently a ±25 % time window labels lap 8 (an off-track lap, 9:55) as "clean" because its dist is just inside the ±5 % window. Switch to "within 5 % of fastest lap" or median-fastest lap for a more honest filter. Affects `'median'` mode primarily; not the headline `'fastest_clean'` result.
+- **Phase 6 scope from here:** decide whether to (a) re-do the setup study (Phase 5 Step 5) on the new calibration, (b) jump straight to v06 (Pacejka + tyre wear), or (c) extend the calibration grid downward (lower mu_0, lower k) to confirm the valley terminates inside our window. Discuss before code.
+
+---
+
 ## Entry 019 — 2026-04-21 — Documentation finalisation: charter closed, design note 001 closed, README refreshed
 
 **Phase:** 5 (Calibration and analysis — closed)
