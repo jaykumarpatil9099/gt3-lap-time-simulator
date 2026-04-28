@@ -1,6 +1,6 @@
 # Nürburgring 24h Lap Time Simulator — Mercedes-AMG GT3
 
-> 🌐 **Live project page:** _coming soon — will be at_ `https://JAYKUMAR-USERNAME.github.io/REPO-NAME/` _once GitHub Pages is enabled._
+> 🌐 **Live project page:** _coming soon — will be at_ `https://jaykumarpatil9099.github.io/gt3-lap-time-simulator/` _once GitHub Pages is enabled._
 
 A MATLAB-based quasi-steady-state (QSS) lap time simulator for the Mercedes-AMG GT3 around the Nürburgring 24h (VLN/NLS combined) layout, calibrated against iRacing telemetry read directly from `.ibt` files.
 

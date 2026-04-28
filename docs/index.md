@@ -4,9 +4,9 @@ title: N24 Lap Time Simulator
 ---
 
 > **Charter PASS — calibrated v05 lap = 8:11.521, Δ = +0.18 s (+0.04 %) vs reference 8:11.341.**
-> [Download the polished Word version (.docx)](https://github.com/JAYKUMAR-USERNAME/REPO-NAME/raw/main/06_reports/n24_portfolio_summary.docx) ·
-> [Browse the source code](https://github.com/JAYKUMAR-USERNAME/REPO-NAME) ·
-> [Read the engineering logbook](https://github.com/JAYKUMAR-USERNAME/REPO-NAME/blob/main/00_admin/01_logbook.md)
+> [Download the polished Word version (.docx)](https://github.com/jaykumarpatil9099/gt3-lap-time-simulator/raw/main/06_reports/n24_portfolio_summary.docx) ·
+> [Browse the source code](https://github.com/jaykumarpatil9099/gt3-lap-time-simulator) ·
+> [Read the engineering logbook](https://github.com/jaykumarpatil9099/gt3-lap-time-simulator/blob/main/00_admin/01_logbook.md)
 
 | Metric | Result |
 | --- | --- |
