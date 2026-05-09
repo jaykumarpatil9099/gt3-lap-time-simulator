@@ -147,13 +147,20 @@ fprintf('  after dropping <1 s segments: %d laps\n', numel(laps));
 %% ---- Final clean-lap classification ---------------------------------
 %  A lap is clean if it: (a) is not the out-/in-lap, (b) never touched
 %  pit road, (c) covered ~full track distance, (d) had real throttle
-%  application, and (e) is within 5 % of the fastest lap in the session.
-%  (e) replaces an earlier ±25 %-of-median rule that let through laps with
-%  off-track incidents (e.g. a 9:55 lap on N24 sat just inside the wide
-%  median window). "Within 5 % of fastest" is the standard race-engineer
-%  consistency band for clean driving on a long lap.
+%  application, and (e) is within 5 % of the fastest *full-distance* lap.
+%
+%  (e) used to use min([laps.lap_time]), but if the session ends mid-lap
+%  the last fragment looks "fastest" (104 s on a 25 km track is faster
+%  than any real lap) and every full lap fails the within-5%-of-fastest
+%  test, leaving no clean laps. Anchor "fastest" to laps that already
+%  pass the full-distance check.
 median_d = median(dist_each);
-fastest_t = min([laps.lap_time]);
+full_dist_mask = abs(dist_each - median_d) / median_d < 0.05;
+if any(full_dist_mask)
+    fastest_t = min([laps(full_dist_mask).lap_time]);
+else
+    fastest_t = min([laps.lap_time]);     % nothing full-distance, use raw min
+end
 for ix = 1:numel(laps)
     not_first_or_last = (ix > 1) && (ix < numel(laps));
     pit_free          = ~laps(ix).clean_flags.on_pit_during_lap;

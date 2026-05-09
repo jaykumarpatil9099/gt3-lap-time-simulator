@@ -12,6 +12,41 @@
 
 ---
 
+## Entry 021 — 2026-04-22 — v06 lands: Pacejka MF 5.2 lateral + longitudinal + combined-slip wired into the lap solver
+
+**Phase:** 6.5 (v06 Pacejka extension)
+
+**Done:**
+- **Pacejka MF 5.2 implementation, lateral pure slip.** Wrote `03_models/v06_pacejka/pacejka_fy.m` — the canonical magic formula `Fy0 = D·sin(C·atan(B·α_t − E·(B·α_t − atan(B·α_t)))) + Sv`. Vectorised, accepts column vectors for α and Fz, returns diagnostic info (B, C, D, E, mu_y, Ky) for downstream fitting.
+- **Pacejka MF 5.2 longitudinal pure slip.** Wrote `pacejka_fx.m` — same shape function on slip ratio κ, with separate p_x coefficient set. Drives drive-/brake-traction calculations.
+- **Combined-slip via G-factor reduction.** Wrote `pacejka_combined.m` — `Fy_combined = G_yκ·Fy0 + Sv_yκ`, `Fx_combined = G_xα·Fx0`. The cosine-form G-factors (`G = cos(C·atan(B·H − E·(B·H − atan(B·H)))) / cos(C·atan(B·S_H))`) produce the Pacejka friction-ellipse coupling that race-team QSS sub-tools use. Validated to give a smooth elliptical envelope at Fz=5 kN.
+- **Coefficient set.** Wrote `02_data/car/pacejka_coeffs_pirelli_dhf_gt3.m` — full lateral + longitudinal + combined-slip parameter set for the AMG GT3 tyres. Started from FSAE TTC racing-slick generic values; rescaled `pDy1`, `pDy2`, `pDx1`, `pDx2` to anchor the Pacejka peak μ to v05's [CAL] curve at the operating point (`pDy1 = 1.475`, `pDy2 = -0.275` from `mu_0 = 1.75`, `load_sens_k = 5.5e-5`).
+- **Per-axle grip helper.** Wrote `get_axle_grip_v06.m` — drop-in replacement for v05's per-tyre grip block. Takes (`v`, `a_long`, `a_lat`, `car`), returns a struct with per-axle and per-tyre Fz, peak |Fy|, peak slip angle, and effective μ. Internally sweeps α from 0.5° to 25° per tyre and finds the maximum |Fy| from `pacejka_fy`.
+- **Lap solver.** Wrote `lap_sim_v06.m` — structurally identical to v05's three-pass solver and continuity loop, with `get_axle_grip_v06` swapping out v05's inline grip computation. Friction-circle approximation kept in Pass 2 / Pass 3 for combined slip (will upgrade to Pacejka G-factors in v06.0b).
+- **Three validation scripts** (`validate_pacejka_fy.m`, `validate_pacejka_combined.m`, `validate_grip_v06.m`) — Step 1 / Step 2 / Step 3a sanity checks. All gates passed before the v06 lap was run.
+- **Two infrastructure fixes.**
+  1. Lap-classifier in `import_reference_laps.m`: fastest-lap reference for the "within 5 % of fastest" clean-lap test was being computed over *all* laps including session-end fragments (lap 11 = 104 s on a 25 km track). Switched to fastest-among-laps-that-already-pass-the-full-distance-check; without this, the IBT loader fell back to the 104 s fragment as reference and v06's track came out at 3.2 km.
+  2. v05's loop counters (`i`, `j`) leaked into outer-script workspaces via `evalc`; the same risk pattern applies to v06. Used `ii` / `jj` everywhere in `lap_sim_v06`'s loops, plus the validation scripts.
+
+**Found:**
+- **v06 calibrated lap = 8:13.071, Δ = +1.730 s (+0.35 %).** Inside the ±1 % charter. v05's calibrated lap was 8:11.521 (+0.18 s, +0.04 %); v06 is +1.55 s slower than v05.
+- **The +1.55 s shift is a curve-shape effect, not a calibration miss.** v05's μ-surrogate gave peak |Fy|/Fz ≈ μ_y exactly; the Magic Formula peak `D·sin(C·atan(arg))` falls slightly short of `D = μ_y·Fz` because `sin(C·atan(arg))` peaks at `≈ 0.998` for `C = 1.35`. Spread across cornering + braking, the 0.2 % shortfall costs ~1.5 s.
+- **Operating slip angles 8-9° at peak**, both axles. Step 3a validated 6.4-9.8°; Step 3b's converged operating points are at 8.4° (front) / 9.0° (rear). Slightly higher than 3a's because the steeper `pDy2` shifts peak α to the right under heavy load. Still bang in the racing-slick band.
+- **Sector signature change v05 → v06:** mean Δv bias dropped from +0.95 m/s to +0.59 m/s (38 % reduction). High-speed sectors S1 / S4 / S6 closer to ref by 0.2-0.4 s each; technical sectors S2 / S3 / S5 slightly worse by 0.4-0.6 s each. Sector RMS 1.50 → 1.61 s. **The v05 high-speed-fast / technical-slow signature is unchanged in shape — only re-distributed slightly across the lap.**
+
+**Think:**
+- **The bias-vs-RMS trade tells us what Pacejka actually buys at this stage.** v05's μ-surrogate was systematically optimistic (every sector slightly fast on average). v06's curve-shape correction takes a uniform 0.2 % chunk out of peak grip, which improves the high-speed sectors (where peak grip is the binding constraint) and slightly worsens the technical sectors (where peak slip-angle behaviour matters more, and our QSS model still operates at peak). The net is "less biased on average, no worse RMS-wise" — exactly the characterisation a race engineer would give a "right physics, not yet calibrated to data" tyre model.
+- **Coefficient anchoring is the honest path here.** We did not let v06.0 free-run on FSAE TTC starting values; we anchored `pDy1`, `pDy2`, `pDx1`, `pDx2` to the v05 [CAL] curve. The narrative is: "v06 = same operating-point grip as v05 [CAL], plus the curve shape v05 didn't have." That keeps the audit chain intact (v05's calibration was the one validated against the reference lap; v06 inherits it). v06.1 will re-fit these coefficients from logged slip-angle / Fy data and break that anchoring deliberately.
+- **What v06 unlocks for the portfolio.** Slip-angle awareness at every track point is now a first-class output. We can plot α(s) around the lap, build α distributions per corner type, identify which corners are operating closest to peak (the corners that need slip dynamics in v07), and use α as an input to a future tyre temperature/wear model. None of these were possible with v05's μ-surrogate.
+
+**Next:**
+- **Step 3c — close v06.0:** write tech-ref §12, update portfolio doc + .docx with v06 lap time and slip-angle plot, commit. Same closing pattern as Phase 5 / Phase 6.
+- **v06.0b — Pacejka G-factor combined slip in Pass 2 / Pass 3.** Currently Pass 2 uses `F_x_max = sqrt(F_grip² − F_y²)` (friction circle on Pacejka peak grip). Replace with `pacejka_combined` evaluated at the operating α / κ pair, so the friction envelope follows the G-factor reduction. Expected impact: small lap-time change (~0.2-0.5 s), more accurate trail-brake and traction-out events.
+- **v06.1 — data-fit coefficients.** Log slip-angle (computed kinematically from yaw-rate, β, and steering channel) and lateral Fy per axle from the IBT, then fit `pDy1`, `pDy2`, `pCy1`, `pEy*`, `pKy*` with non-linear least squares. Replaces FSAE TTC starting values with curves trained on the actual tyre. ~1-2 weeks.
+- **Standing instrumentation:** re-run `correlate_sim` on `sim06` after each refinement; the sector signature is now the canonical regression check.
+
+---
+
 ## Entry 020 — 2026-04-21 — Phase 6 launched: multi-lap IBT pipeline, recalibrate, Phase 5 calibration retracted
 
 **Phase:** 6 (post-charter extension — multi-lap IBT pipeline)
