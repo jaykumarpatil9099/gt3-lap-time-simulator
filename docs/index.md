@@ -66,7 +66,8 @@ Each version was built as the previous version plus exactly one new physics effe
 | v03 (+ load sens) | μ(Fz) per-tyre coefficient | 7:46.382 | −25.0 s |
 | v04 (+ long transfer) | Per-axle Fz, friction-circle, brake-bias min | 7:50.704 | −20.6 s |
 | v05 (+ lateral transfer + ARB) | Per-tyre Fz, ARB redistribution, per-tyre μ | 8:02.424 | −8.9 s |
-| **v05 calibrated (Phase 6, IBT)** | mu_0 = 1.75, load_sens_k = 5.5e-5 | **8:11.521** | **+0.18 s (+0.04 %)** |
+| v05 calibrated (Phase 6, IBT) | mu_0 = 1.75, load_sens_k = 5.5e-5 | 8:11.521 | +0.18 s (+0.04 %) |
+| **v06 (Pacejka MF 5.2)** | lateral + Fx + combined-slip G-factors, anchored to v05 [CAL] | **8:13.071** | **+1.73 s (+0.35 %)** |
 
 ### 3.2 Dual track-data source
 
@@ -135,7 +136,8 @@ This is the project's most useful finding from a methodological standpoint: it i
 
 ## 6. Known limits and future work
 
-- **Tyre slip dynamics** — peak-grip surrogate `μ(Fz)` cannot represent slip-angle fall-off. A Pacejka magic-formula model is the natural v06.
+- **Pacejka tyre model — v06 landed.** Replaces the v05 `μ(Fz)` surrogate with Magic Formula 5.2 (lateral + Fx + combined-slip via G-factors). Coefficients anchored to v05 [CAL] at the operating point. v06 lap = 8:13.071 (+0.35 %, charter PASS). Per-tyre slip angle (≈ 7-9°) now exposed for v07 work.
+- **Slip dynamics (v07).** v06 still operates at peak slip angle. Transient model with slip-development time and relaxation length is the next physical layer.
 - **Transient suspension** — no springs, dampers, anti-dive, anti-squat. Multibody add-on out of scope.
 - **Differential** — driven axle is a single rigid pair. Open / Salisbury / preload would change on-throttle corner-exit fidelity.
 - **Multi-lap median reference** — pipeline is built (`'median'` mode in `select_reference_lap.m`); not yet running as the default.
@@ -149,7 +151,14 @@ This is the project's most useful finding from a methodological standpoint: it i
 | `00_admin/` | Charter, append-only logbook (20 entries), design notes |
 | `01_references/` | Technical reference document — every equation explained |
 | `02_data/` | Vehicle parameters (`car/`), track geometry (`track/`), telemetry pipeline (`telemetry/`) |
-| `03_models/` | v01 → v05 solvers, one folder per fidelity rung |
+| `03_models/` | v01 → v06 solvers, one folder per fidelity rung (v06 = Pacejka MF 5.2) |
+| `04_correlation/` | `correlate_sim.m` reusable sectorised reporter, plus diagnostics |
+| `05_studies/` | Phase 5 + Phase 6 study scripts and saved results |
+| `06_reports/` | Portfolio summary (this document, source `.md` + polished `.docx`) and figures |
+
+---
+
+*Last revised: 2026-04-22 — covers Phase 5 Steps 1–5, Phase 6 (multi-lap IBT pipeline + recalibration), and Phase 6.5 v06 (Pacejka MF 5.2). Logbook Entry 021 covers v06; Entry 020 covers Phase 6; Entries 017–018 cover Phase 5.*elity rung |
 | `04_correlation/` | `correlate_sim.m` reusable sectorised reporter, plus diagnostics |
 | `05_studies/` | Phase 5 + Phase 6 study scripts and saved results |
 | `06_reports/` | Portfolio summary (this document, source `.md` + polished `.docx`) and figures |

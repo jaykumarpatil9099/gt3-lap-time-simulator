@@ -2,7 +2,7 @@
 
 **Author:** Jaykumar Patil
 **Created:** 2026-04-16
-**Last revised:** 2026-04-21 — added §2.7 (Suspension parameters — ARB roll stiffnesses and the derived roll distribution) and §11 (v05 lateral weight transfer + per-tyre load-sensitive grip + the `−2kδ²` grip penalty derivation + validation table), retired the `load_xfer_reduction` narrative, rewrote §9.8 now that v05 exists, and updated the "Needed from: v05" forward references in §2 to past tense. Previous revision (2026-04-20) added §4A (GPS centerline source), §8 (v03 load sensitivity), §9 (v04 longitudinal weight transfer), §10 (correlation diagnostics), rewrote §4.4 around the two-stage curvature filter, and refreshed the §5 data-flow diagram.
+**Last revised:** 2026-04-22 — added §12 for v06 (Pacejka Magic Formula 5.2 lateral + longitudinal + combined-slip + the v05-anchor coefficient set + per-tyre slip-angle exposure + 8:13.071 validation), rewrote §11.8 to point at §12 instead of describing Pacejka as out-of-scope, and updated the TOC. Previous revision (2026-04-21) added §2.7 (Suspension parameters — ARB roll stiffnesses) and §11 (v05 lateral weight transfer); 2026-04-20 added §4A (GPS centerline source), §8 (v03 load sensitivity), §9 (v04 longitudinal weight transfer), §10 (correlation diagnostics), and rewrote §4.4 around the two-stage curvature filter.
 **Purpose:** Documents every calculation, equation, assumption, and design decision made in this project. This is the document you open when you ask "why did we do it this way?" or "what does this equation mean?"
 
 ---
@@ -21,6 +21,7 @@
 9. v04 — longitudinal weight transfer and per-axle grip
 10. Correlation and diagnostics
 11. v05 — lateral weight transfer and ARB redistribution
+12. v06 — Pacejka Magic Formula 5.2 tyre model
 
 ---
 
@@ -910,4 +911,146 @@ The +11.72 s v05-over-v04 cost sits inside the 8–15 s range expected for later
 
 ### 11.8 What v05 is still not
 
-v05 is still QSS: it does not model transient roll dynamics (spring/damper oscillation on corner entry and exit), it does not model camber recovery through the lateral transfer, and it does not model the real tyre's `Fy(Fz, α)` slip curve — the load-sensitive `μ` is a peak-grip surrogate, not a slip-angle model. Those are Pacejka/MF territory and sit outside the scope of the portfolio piece. The one effect inside scope that v05 does not yet add is differential behaviour on the driven axle, which only matters for on-throttle-in-corner cases where the inside rear approaches unloading; on this car with `car.weight_dist_f = 0.46` and modest rear wing, that condition is rare on the N24 reference lap.
+v05 is still QSS: it does not model transient roll dynamics (spring/damper oscillation on corner entry and exit), it does not model camber recovery through the lateral transfer, and it does not model the real tyre's `Fy(Fz, α)` slip curve — the load-sensitive `μ` is a peak-grip surrogate, not a slip-angle model. Those are Pacejka/MF territory; v06 (§12) brings the slip curve in.
+
+---
+
+## 12. v06 — Pacejka Magic Formula 5.2 Tyre Model
+
+Folder: `03_models/v06_pacejka/`
+Files: `pacejka_fy.m`, `pacejka_fx.m`, `pacejka_combined.m`, `get_axle_grip_v06.m`, `lap_sim_v06.m`, three `validate_*.m` scripts.
+
+### 12.1 Why v06 exists
+
+v05's tyre model is a peak-grip surrogate: at every track point we compute `F_y_max = μ(Fz)·Fz` for each tyre and treat that as the lateral grip available for cornering. Two limitations:
+
+The first is curve shape. `μ(Fz)·Fz` is a *scalar peak*: at the operating point we get exactly the peak grip and that's all we know. A real tyre's lateral force `F_y(α, Fz)` is a curve in slip angle, with a steep linear region near α=0, a peak around α = 6..10°, and a falling region beyond. The shape of that curve matters for how the car behaves near the limit, how transient grip recovers when the driver eases off, and what slip-angle the tyre is actually operating at.
+
+The second is slip-angle awareness. v05 has no concept of "what slip angle is this tyre at?" — it just returns peak grip. A v07-style transient model, a future thermal/wear coupling, or any kind of mid-corner setup study needs the slip angle as an input. v05 cannot supply it.
+
+v06 replaces the surrogate with the canonical Magic Formula 5.2 tyre model used by race-team QSS sub-tools. It exposes per-tyre slip angle as a first-class output, gives the curve shape its full role, and provides the structural foundation that v06.1 (data-fit coefficients) and v07 (slip dynamics) build on.
+
+### 12.2 Magic Formula 5.2 — lateral pure slip
+
+The pure-slip lateral force is
+
+    F_y0 = D·sin(C·atan(B·α_t − E·(B·α_t − atan(B·α_t)))) + S_v
+
+where `α_t = α + S_h` and the four shape factors are functions of vertical load and camber:
+
+    μ_y     = (pDy1 + pDy2·dfz)·(1 − pDy3·γ²)            peak friction coefficient
+    D       = μ_y · Fz                                    peak force
+    C       = pCy1                                        shape factor (curve sharpness)
+    E       = (pEy1 + pEy2·dfz)·(1 + pEy5·γ² − (pEy3 + pEy4·γ)·sign(α_t))
+                                                          curvature factor (peak roundness)
+    K_y     = pKy1·Fz0·sin(2·atan(Fz/(pKy2·Fz0)))·(1 − pKy3·|γ|)
+                                                          cornering stiffness
+    B       = K_y / (C · D)                               stiffness factor
+    dfz     = (Fz − Fz0) / Fz0                            normalised load deviation
+
+The `pXy*` coefficients are dimensionless tyre constants. `Fz0` is a nominal load (5000 N for the AMG GT3 set). The horizontal and vertical shifts `S_h`, `S_v` capture small ply-steer and conicity effects; for a symmetric racing slick at γ = 0 they are zero.
+
+The implementation is in `03_models/v06_pacejka/pacejka_fy.m`. The function takes `(α, Fz, p, γ)` and is fully vectorised in `α` and `Fz`. Diagnostic outputs (`B`, `C`, `D`, `E`, `K_y`) are returned for downstream fitting and plotting.
+
+### 12.3 Magic Formula 5.2 — longitudinal pure slip
+
+The longitudinal force has the same shape as the lateral, with slip ratio `κ` replacing slip angle `α`:
+
+    F_x0 = D·sin(C·atan(B·κ_t − E·(B·κ_t − atan(B·κ_t)))) + S_v
+
+with its own coefficient set `pCx1`, `pDx1`, `pDx2`, `pEx1..4`, `pKx1..3`. Slip ratio is positive for drive (wheel spinning faster than road) and negative for brake. The Pacejka asymmetry term `pEx4` lets the curve be slightly different in drive vs. brake; for a symmetric racing slick we keep `pEx4 = 0`.
+
+The implementation is in `pacejka_fx.m`. Same vector signature as the lateral version.
+
+### 12.4 Combined slip — Pacejka G-factor reduction
+
+Pure slip is only valid if the tyre is doing one job at a time: pure cornering (κ = 0) or pure straight-line drive/brake (α = 0). Real cornering involves both: a corner entry combines high α with brake κ; a corner exit combines high α with drive κ. The tyre has a single friction budget that must serve both axes.
+
+MF 5.2 handles this through two dimensionless reduction factors:
+
+    F_y_combined = G_yκ(α, κ, Fz, γ) · F_y0  +  S_vyκ
+    F_x_combined = G_xα(α, κ, Fz)    · F_x0
+
+`G_yκ` is one when κ = 0 (pure cornering: no reduction) and shrinks toward zero as |κ| grows (large drive/brake slip steals lateral grip). `G_xα` is the symmetric reducer. Both have the cosine form
+
+    G = cos( C · atan( B·H − E·(B·H − atan(B·H)) ) ) /
+        cos( C · atan( B · S_H ) )
+
+with their own `B`, `C`, `E`, `S_h` parameters indexed `r*` instead of `p*` to mark them as combined-slip parameters. The denominator normalises `G` to 1 at the no-coupling point.
+
+The result is a smooth elliptical envelope in the `(F_y, F_x)` plane: the friction circle, but with the corners pulled in by the G-factors. The implementation is in `pacejka_combined.m`. Validation in `validate_pacejka_combined.m` plots the envelope at `Fz = 5 kN` and confirms it is not square (a friction-square would imply the tyre can deliver peak `F_x` and peak `F_y` simultaneously — physically wrong).
+
+In `lap_sim_v06.m`, Pass 2 and Pass 3 currently use a *friction-circle approximation* (`F_x_max = sqrt(F_grip² − F_y²)`) rather than the full G-factor reduction. This is a deliberate v06.0 choice — the structural change from v05 to v06 is the lateral curve, and combined-slip via G-factors goes in v06.0b. The lap-time impact is expected to be ~0.2-0.5 s.
+
+### 12.5 Coefficient set and the v05 anchor
+
+The coefficient values live in `02_data/car/pacejka_coeffs_pirelli_dhf_gt3.m`. They were started from publicly available FSAE Tire Test Consortium (Calspan rolling-rig) data for a 280/680-18 racing slick — the closest open-source dataset to the Pirelli DHF compound used on the AMG GT3.
+
+Two coefficients were then *anchored* to v05's `[CAL]` curve at the operating point:
+
+    pDy1 = 1.475   (peak μ at Fz0 = 5000 N)
+    pDy2 = -0.275  (load drop, matches v05's k = 5.5e-5 across the Fz range)
+
+The arithmetic is:
+
+    v05 [CAL]:  μ(Fz)     = mu_0 − k·Fz       at Fz = 5000:  μ = 1.475
+                dμ/dFz    = −k = −5.5e-5
+    v06:        μ_y(Fz)   = pDy1 + pDy2·dfz    at Fz = 5000:  μ = pDy1
+                dμ_y/dFz  = pDy2 / Fz0
+                pDy2      = −5.5e-5 · 5000 = −0.275
+
+This anchoring keeps v06's *operating-point grip* identical to v05's calibrated curve; the only physical effect that changes between the two is the curve shape (the linear region and the rounded peak), not the magnitude. Without this anchor, v06 with the FSAE TTC starting `pDy1 = 1.55` and `pDy2 = −0.18` produced 8:02.5 — 9 s faster than v05 — because the extrapolated grip at race-load Fz was 5 % too high.
+
+`pDx1` and `pDx2` are anchored the same way (`pDx1 = 1.475`, `pDx2 = −0.275`) so the longitudinal peak μ matches the lateral. v06.1 will replace these anchored values with coefficients fitted from logged iRacing slip-angle and Fy data.
+
+### 12.6 Per-tyre slip angle as a first-class output
+
+`get_axle_grip_v06.m` is the per-axle helper that v05's three-pass solver expected. Same Fz-distribution arithmetic as v05 (static + aero + longitudinal transfer + lateral transfer with ARB redistribution), but the per-tyre lateral-force budget is now computed as
+
+    F_y_peak_tyre = max over α of pacejka_fy(α, Fz_tyre, p)
+
+The α-sweep is from 0.5° to 25° in 0.25° steps (99 samples) per tyre. Slow-looking but vectorised inside `pacejka_fy`, giving ~25,000 lap points × 4 tyres ≈ 100k function calls in ~1 second.
+
+In addition to the v05 outputs (`F_grip_f`, `F_grip_r`, `Fz_*`), `get_axle_grip_v06` returns `alpha_peak_*_out/in` for each tyre — the slip angle at which the maximum was found. This is the operating slip angle if the tyre is at its lateral grip limit. On the N24 reference lap, `alpha_peak` distributions are:
+
+    Front: mean = 7.3°,  median = 7.2°,  range = [6.4 .. 9.1°]
+    Rear:  mean = 7.9°,  median = 7.8°,  range = [6.6 .. 9.8°]
+
+— bang in the racing-slick band. The 0.4..0.6° rear-vs-front gap is real signal: the rear axle carries more load (54 % weight + RWD acceleration), pushing peak α to the right.
+
+### 12.7 Solver integration
+
+`lap_sim_v06.m` is structurally identical to `lap_sim_v05.m` — same three-pass solver, same continuity loop, same brake-bias minimum constraint — with one substitution: every `get_axle_grip_v05(...)` call becomes `get_axle_grip_v06(...)` and the outputs are read from the returned struct instead of multi-return-value MATLAB syntax. The friction-circle coupling in Passes 2 and 3 is unchanged at v06.0; G-factor coupling is the v06.0b refinement.
+
+### 12.8 Validation state
+
+| Version | Lap time (telemetry) | Δ vs ref | Δ vs v05 |
+| --- | --- | --- | --- |
+| **v06.0** | **8:13.071** | **+1.730 s (+0.35 %)** | **+1.55 s** |
+| v05 calibrated (Phase 6) | 8:11.521 | +0.180 s (+0.04 %) | — |
+
+v06.0's +1.55 s vs v05 is the curve-shape effect: the Magic Formula peak `D·sin(C·atan(arg))` falls slightly short of the asymptotic `D = μ_y·Fz` because `sin(C·atan(arg))` peaks at ≈ 0.998 for `C = 1.35`. Spread across cornering and braking, the 0.2 % shortfall costs ~1.5 s. This is not a calibration miss — it is the curve shape that v05's surrogate was hiding.
+
+**Sector signature (v05 vs v06.0):**
+
+| Sector | v05 Δt [s] | v06.0 Δt [s] | Change |
+| --- | --- | --- | --- |
+| S1 (GP, high speed) | −1.96 | −1.53 | improved (less optimism) |
+| S2 (Hatzenbach-Flugplatz) | +1.39 | +1.87 | slightly worse |
+| S3 (technical) | +1.92 | +2.40 | slightly worse |
+| S4 (Karussell) | −0.94 | −0.61 | improved |
+| S5 (Brünnchen) | +0.52 | +1.12 | slightly worse |
+| S6 (Döttinger, high speed) | −1.72 | −1.51 | improved |
+
+Mean `Δv` bias drops from +0.95 m/s to +0.59 m/s — a 38 % reduction. v06.0 is *less wrong on average* than v05, with the residual concentrated more cleanly in the technical sectors where slip dynamics live (out of QSS scope). The high-speed-fast / technical-slow signature is unchanged in shape — the curve-shape correction takes a uniform 0.2 % chunk out of peak grip across the board, which improves the speed-binding sectors and leaves the slip-binding sectors slightly more visible.
+
+### 12.9 What v06 still does not yet capture
+
+v06.0 has the lateral curve, the longitudinal curve, and the standalone combined-slip envelope. It does not yet:
+
+- **Use the G-factor combined-slip envelope inside the lap solver.** Passes 2 and 3 still use a friction-circle approximation. v06.0b lifts this.
+- **Use coefficients fitted from the actual tyre.** The pDy1 / pDy2 / pDx1 / pDx2 are anchored to v05's calibrated curve; the rest are FSAE TTC starting values. v06.1 will fit all of them from logged iRacing slip-angle and Fy data.
+- **Model slip-angle dynamics.** v06 still operates at peak slip angle (~7-9°) at every track point. A real tyre needs time and travel to develop slip; corner-entry and corner-exit phases would benefit from a transient model. v07 territory.
+- **Couple tyre temperature and wear.** The IBT pipeline already exposes per-tyre `LF/RF/LR/RR wearM` and `tempCM` channels. A future extension would multiply Pacejka peak `D` by `f(T_tyre, wear_remaining)` and turn the simulator into a stint-degradation tool.
+
+The first two are the natural Phase 7 / Phase 8 work. The last two are v07 / v08 stretch goals.

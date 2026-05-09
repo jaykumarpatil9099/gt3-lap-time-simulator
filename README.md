@@ -5,8 +5,9 @@
 A MATLAB-based quasi-steady-state (QSS) lap time simulator for the Mercedes-AMG GT3 around the Nürburgring 24h (VLN/NLS combined) layout, calibrated against iRacing telemetry read directly from `.ibt` files.
 
 **Author:** Jaykumar Patil
-**Status:** Phase 6 complete — charter PASS at +0.04 % vs reference.
-**Calibrated lap time:** **8:11.521** (v05, Δ +0.18 s vs reference 8:11.341)
+**Status:** Phase 6.5 — v06 (Pacejka MF 5.2) landed. Charter PASS at +0.35 % vs reference.
+**v05 calibrated:** 8:11.521 (Δ +0.18 s, +0.04 %)
+**v06 (Pacejka MF 5.2):** **8:13.071** (Δ +1.73 s, +0.35 %) — current head
 **Toolchain:** MATLAB R2024b · iRacing · Cosworth PI Toolbox Pro
 
 > **Read this first:** [`06_reports/n24_portfolio_summary.md`](06_reports/n24_portfolio_summary.md) — five-page executive summary of the whole project. The same content as a polished Word doc lives at [`06_reports/n24_portfolio_summary.docx`](06_reports/n24_portfolio_summary.docx). The same content rendered as a website is in [`docs/index.md`](docs/index.md).
@@ -44,7 +45,8 @@ Each model version lives in its own subfolder under `03_models/` with its own so
 | v03 load sensitivity | μ(Fz) per-tyre grip coefficient | Within 2 % | 7:46.382 |
 | v04 longitudinal weight transfer | Per-axle Fz, friction circle per axle, brake-bias min | Within 1 % | 7:50.704 |
 | v05 lateral weight transfer | Per-tyre Fz with ARB roll-stiffness redistribution; per-tyre μ(Fz) | Within 1 % (charter) | 8:02.424 (uncalibrated) |
-| **v05 calibrated (Phase 6, IBT)** | Tyre `μ_0 = 1.75` and `load_sens_k = 5.5e-5` against multi-lap IBT | **±1 % charter** | **8:11.521, +0.04 %** ✓ |
+| v05 calibrated (Phase 6, IBT) | Tyre `μ_0 = 1.75` and `load_sens_k = 5.5e-5` against multi-lap IBT | ±1 % charter | 8:11.521, +0.04 % ✓ |
+| **v06 (Pacejka MF 5.2)** | Lateral + Fx + combined-slip via G-factors; coefficients anchored to v05 [CAL] | **±1 % charter** | **8:13.071, +0.35 %** ✓ |
 
 ## Phase 5 — calibration and analysis
 

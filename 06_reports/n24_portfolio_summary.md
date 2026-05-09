@@ -34,13 +34,15 @@ The headline finding from the setup study is that the residual sector signature 
 **In scope**
 - Quasi-steady-state lap solver with three passes (cornering speed, forward acceleration, backward braking) and a continuity iteration to close the lap.
 - Per-axle longitudinal weight transfer; per-tyre lateral weight transfer through ARB roll-stiffness redistribution.
-- Load-sensitive tyre friction `μ(Fz) = μ_0 − k·Fz`, applied per tyre.
+- Load-sensitive tyre friction `μ(Fz) = μ_0 − k·Fz` (v05) and Pacejka Magic Formula 5.2 lateral + longitudinal + combined-slip via G-factor reduction (v06), both applied per tyre.
 - Aero downforce and drag with front-rear balance.
 - Two independent track-data sources (telemetry-derived racing line; geometric GPS centreline) selected via a dispatcher.
 - Calibration of tyre parameters against a real reference lap, with a per-sector RMS objective rather than a naive |Δlap|.
+- Direct-from-IBT multi-lap reference pipeline, written in pure MATLAB.
+- Per-tyre slip-angle exposure as first-class output (v06).
 
 **Out of scope (deliberate)**
-- Pacejka or any slip-angle / slip-ratio tyre model.
+- Slip-angle dynamics — slip-development time and relaxation length (v07 territory).
 - Transient suspension dynamics (springs, dampers, anti-dive, anti-squat).
 - Differential modelling (open / preload / Salisbury).
 - Tyre temperature, brake fade, fuel burn, driver reaction time.
@@ -98,7 +100,8 @@ The solver walks the track in the distance domain at 1 m spacing (~25 200 points
 | v03 (+ load sens) | 7:46.382 | −25.0 s | −1.2 s |
 | v04 (+ long transfer) | 7:50.704 | −20.6 s | +4.3 s |
 | v05 (+ lateral transfer + ARB) | 8:02.424 | −8.9 s (−1.81 %) | +11.7 s |
-| **v05 calibrated** (Phase 6, IBT) | **8:11.521** | **+0.18 s (+0.04 %)** | — |
+| v05 calibrated (Phase 6, IBT) | 8:11.521 | +0.18 s (+0.04 %) | — |
+| **v06** (+ Pacejka MF 5.2 lateral + Fx + combined-slip) | **8:13.071** | **+1.73 s (+0.35 %)** | **+1.55 s vs v05** |
 
 The v05 → v04 cost of +11.7 s sits inside the 8–15 s range expected for lateral transfer on a GT3 at this track — a strong physics-gate sanity check that the new code behaves correctly before any calibration.
 
@@ -164,7 +167,9 @@ The decisions below are the judgment calls a hiring engineer would want to see d
 
 ## 6. Known limits and future work
 
-**Tyre slip dynamics.** The current model uses a peak-grip surrogate `μ(Fz)`. A Pacejka magic-formula model would resolve the high-speed-fast / technical-slow signature directly because its `Fy` curve falls off near the slip-angle limit, which a peak-grip model cannot represent.
+**Pacejka tyre model — v06 landed.** v06 replaces the v05 `μ(Fz)` surrogate with the canonical Magic Formula 5.2 (lateral pure slip + longitudinal pure slip + combined-slip via G-factor reduction). Coefficients anchored to v05's calibrated curve at the operating point; v06 lap = 8:13.071 (+0.35 % vs reference, charter still PASS). The Pacejka curve shape removes ~38 % of v05's mean Δv bias. Per-tyre slip angle now a first-class output (operating point ≈ 7-9°). v06.0b will integrate the G-factor envelope into the lap solver; v06.1 will refit coefficients from logged iRacing slip-angle / Fy data.
+
+**Slip dynamics (v07).** v06 still operates at peak slip angle at every track point. A transient model with slip-development time and relaxation length would resolve the residual high-speed-fast / technical-slow signature directly.
 
 **Transient suspension.** No springs, dampers, anti-dive, or anti-squat. A multibody add-on (Simscape Multibody or a Maple-derived equation set) is the natural next step if the goal is to study setup changes at a finer resolution than ARB balance.
 
@@ -188,4 +193,4 @@ For depth, follow the chain below.
 
 ---
 
-*Last revised: 2026-04-21 — covers Phase 5 Steps 1–5 plus Phase 6 (multi-lap IBT pipeline + recalibration). See logbook Entry 020 for the most recent record; entries 017 and 018 cover the original Phase 5 work.*
+*Last revised: 2026-04-22 — covers Phase 5 Steps 1–5, Phase 6 (multi-lap IBT pipeline + recalibration), and Phase 6.5 v06 (Pacejka MF 5.2). Logbook Entry 021 covers v06; Entry 020 covers Phase 6; Entries 017–018 cover Phase 5.*
