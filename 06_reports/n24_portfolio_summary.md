@@ -9,10 +9,11 @@
 | Metric | Result |
 | --- | --- |
 | Reference lap (driver) | 8:11.341 |
-| Calibrated v05 lap | **8:11.521** |
-| Delta vs reference | **+0.04 % (+0.18 s)** |
+| Calibrated v05 lap | 8:11.521  (+0.04 %) |
+| Calibrated v06.0b lap (head) | **8:13.002  (+0.34 %)** |
 | Charter target | ±1.0 % |
 | **Charter status** | **PASS** |
+| Tyre model (head) | Pacejka MF 5.2 + full G-factor envelope (v06.0b) |
 | Calibrated against | Multi-lap iRacing IBT (Phase 6) |
 
 ---
@@ -101,7 +102,8 @@ The solver walks the track in the distance domain at 1 m spacing (~25 200 points
 | v04 (+ long transfer) | 7:50.704 | −20.6 s | +4.3 s |
 | v05 (+ lateral transfer + ARB) | 8:02.424 | −8.9 s (−1.81 %) | +11.7 s |
 | v05 calibrated (Phase 6, IBT) | 8:11.521 | +0.18 s (+0.04 %) | — |
-| **v06** (+ Pacejka MF 5.2 lateral + Fx + combined-slip) | **8:13.071** | **+1.73 s (+0.35 %)** | **+1.55 s vs v05** |
+| v06.0 (+ Pacejka MF 5.2, friction-circle in solver) | 8:13.071 | +1.73 s (+0.35 %) | +1.55 s vs v05 |
+| **v06.0b** (+ full Pacejka G-factor envelope in solver) | **8:13.002** | **+1.66 s (+0.34 %)** | **−0.07 s vs v06.0** |
 
 The v05 → v04 cost of +11.7 s sits inside the 8–15 s range expected for lateral transfer on a GT3 at this track — a strong physics-gate sanity check that the new code behaves correctly before any calibration.
 
@@ -167,7 +169,9 @@ The decisions below are the judgment calls a hiring engineer would want to see d
 
 ## 6. Known limits and future work
 
-**Pacejka tyre model — v06 landed.** v06 replaces the v05 `μ(Fz)` surrogate with the canonical Magic Formula 5.2 (lateral pure slip + longitudinal pure slip + combined-slip via G-factor reduction). Coefficients anchored to v05's calibrated curve at the operating point; v06 lap = 8:13.071 (+0.35 % vs reference, charter still PASS). The Pacejka curve shape removes ~38 % of v05's mean Δv bias. Per-tyre slip angle now a first-class output (operating point ≈ 7-9°). v06.0b will integrate the G-factor envelope into the lap solver; v06.1 will refit coefficients from logged iRacing slip-angle / Fy data.
+**Pacejka tyre model — v06.0b is the project head.** v06 replaces the v05 `μ(Fz)` surrogate with the canonical Magic Formula 5.2 (lateral + longitudinal + combined-slip). Coefficients anchored to v05's calibrated curve at the operating point. v06.0 used a friction-circle approximation in Pass 2 / Pass 3 (8:13.071, +0.35 %); v06.0b replaced it with the full Pacejka G-factor envelope via a lookup-table helper (`pacejka_envelope.m`) and landed at **8:13.002 (+0.34 %)** — Δ = −0.07 s vs v06.0. Headline finding: once G-factor coefficients are tightened to a physically realistic envelope (we caught the loose generic FSAE TTC values producing a 7 % puffy envelope, fixed by raising `rBy1 = 14`, `rBx1 = 20`), friction-circle and full Pacejka G-factor envelope produce essentially the same lap time.
+
+**v06.1 data-fit (diagnostic, not locked).** Fit `pDy1`, `pKy1` to slip-angle and Fy data extracted from the IBT reference lap via bicycle-model kinematics. Result: iRacing's tyre is **~6.6 % less grippy at peak** (`pDy1: 1.475 → 1.378`) and **~75 % stiffer in cornering response** (`pKy1: −35 → −61`) than the v05/v06.0b anchor implied. Lap with fitted coeffs: 8:17.240 (+1.20 %). The non-trivial finding is that v05's lap-time-correct calibration carried a hidden peak-μ bias that didn't show up in the lap-time output — the curves integrate to similar lap times but have different shapes. Single-lap data and an `[EST]` steering ratio prevent us from locking the fit in; the diagnostic stays as `pacejka_fit_v06_1.mat` evidence and v06.2 (multi-lap fit) is queued.
 
 **Slip dynamics (v07).** v06 still operates at peak slip angle at every track point. A transient model with slip-development time and relaxation length would resolve the residual high-speed-fast / technical-slow signature directly.
 

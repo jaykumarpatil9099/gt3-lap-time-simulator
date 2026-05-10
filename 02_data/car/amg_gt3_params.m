@@ -140,6 +140,14 @@ car.tyre.load_sens_k = 5.5e-5;  % [1/N]   Load sensitivity slope                
 
 car.tyre.rolling_radius = 0.327; % [m]     Effective rolling radius (325/705-18 GT3 spec)  [IRACING]
 
+car.steering_ratio = 13;        % [-]     Steering wheel : front wheel angle ratio        [EST]
+                                 %         Typical for GT3 cars (FIA 2020 GT3 reg).
+                                 %         Used in v06.1 to derive front-axle slip angle
+                                 %         from the SteeringWheelAngle telemetry channel:
+                                 %             δ_wheel = SteeringWheelAngle / steering_ratio
+                                 %         A real value would come from team-confidential
+                                 %         setup data; 13:1 is the GT3-typical default.
+
 %% ========================================================================
 %  5. POWERTRAIN
 %  ========================================================================

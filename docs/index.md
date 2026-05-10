@@ -3,7 +3,7 @@ layout: default
 title: N24 Lap Time Simulator
 ---
 
-> **Charter PASS — calibrated v05 lap = 8:11.521, Δ = +0.18 s (+0.04 %) vs reference 8:11.341.**
+> **Charter PASS — calibrated v06.0b (Pacejka MF 5.2) lap = 8:13.002, Δ = +1.66 s (+0.34 %) vs reference 8:11.341.**
 > [Download the polished Word version (.docx)](https://github.com/jaykumarpatil9099/gt3-lap-time-simulator/raw/main/06_reports/n24_portfolio_summary.docx) ·
 > [Browse the source code](https://github.com/jaykumarpatil9099/gt3-lap-time-simulator) ·
 > [Read the engineering logbook](https://github.com/jaykumarpatil9099/gt3-lap-time-simulator/blob/main/00_admin/01_logbook.md)
@@ -11,10 +11,11 @@ title: N24 Lap Time Simulator
 | Metric | Result |
 | --- | --- |
 | Reference lap (driver) | 8:11.341 |
-| Calibrated v05 lap | **8:11.521** |
-| Delta vs reference | **+0.04 % (+0.18 s)** |
+| Calibrated v05 lap | 8:11.521  (+0.04 %) |
+| Calibrated v06.0b lap (head) | **8:13.002  (+0.34 %)** |
 | Charter target | ±1.0 % |
 | **Charter status** | **PASS** |
+| Tyre model (head) | Pacejka MF 5.2 + full G-factor envelope (v06.0b) |
 | Calibrated against | Multi-lap iRacing IBT (Phase 6) |
 
 ---
@@ -67,7 +68,8 @@ Each version was built as the previous version plus exactly one new physics effe
 | v04 (+ long transfer) | Per-axle Fz, friction-circle, brake-bias min | 7:50.704 | −20.6 s |
 | v05 (+ lateral transfer + ARB) | Per-tyre Fz, ARB redistribution, per-tyre μ | 8:02.424 | −8.9 s |
 | v05 calibrated (Phase 6, IBT) | mu_0 = 1.75, load_sens_k = 5.5e-5 | 8:11.521 | +0.18 s (+0.04 %) |
-| **v06 (Pacejka MF 5.2)** | lateral + Fx + combined-slip G-factors, anchored to v05 [CAL] | **8:13.071** | **+1.73 s (+0.35 %)** |
+| v06.0 (Pacejka + friction circle) | lateral + Fx + combined-slip G-factors, friction-circle in solver | 8:13.071 | +1.73 s (+0.35 %) |
+| **v06.0b (full Pacejka G-factor envelope)** | G-factor envelope replaces friction circle in Pass 2 / Pass 3 | **8:13.002** | **+1.66 s (+0.34 %)** |
 
 ### 3.2 Dual track-data source
 
@@ -136,8 +138,9 @@ This is the project's most useful finding from a methodological standpoint: it i
 
 ## 6. Known limits and future work
 
-- **Pacejka tyre model — v06 landed.** Replaces the v05 `μ(Fz)` surrogate with Magic Formula 5.2 (lateral + Fx + combined-slip via G-factors). Coefficients anchored to v05 [CAL] at the operating point. v06 lap = 8:13.071 (+0.35 %, charter PASS). Per-tyre slip angle (≈ 7-9°) now exposed for v07 work.
-- **Slip dynamics (v07).** v06 still operates at peak slip angle. Transient model with slip-development time and relaxation length is the next physical layer.
+- **Pacejka tyre model — v06.0b is the head.** Replaces v05's `μ(Fz)` surrogate with Magic Formula 5.2 (lateral + Fx + combined-slip via G-factor envelope). v06.0b uses the full Pacejka envelope in the lap solver. Charter PASS at +0.34 %. Per-tyre slip angle exposed.
+- **v06.1 (data-fit diagnostic).** Slip-angle and Fy extracted from IBT via bicycle kinematics; `pDy1` and `pKy1` refitted. Finding: iRacing's tyre is ~6.6 % less grippy at peak and ~75 % stiffer than v05/v06.0b anchor implies. Lap with fit: 8:17.240 (+1.20 %). Kept as diagnostic only — v06.0b stays as head. Multi-lap refit (v06.2) is the next refinement.
+- **Slip dynamics (v07).** v06 still operates at peak slip angle. A transient model with slip-development time and relaxation length is the next physical layer.
 - **Transient suspension** — no springs, dampers, anti-dive, anti-squat. Multibody add-on out of scope.
 - **Differential** — driven axle is a single rigid pair. Open / Salisbury / preload would change on-throttle corner-exit fidelity.
 - **Multi-lap median reference** — pipeline is built (`'median'` mode in `select_reference_lap.m`); not yet running as the default.

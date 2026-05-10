@@ -111,7 +111,14 @@ p.pVx2 = 0.0;
 %  power-on at corner exit).
 
 % Fy reduction by longitudinal slip
-p.rBy1 = 8.0;
+%
+% rBy1 / rBx1 tightened in v06.0b after the loose generic FSAE TTC
+% values (rBy1=8, rBx1=15) produced an envelope extending ~7 % beyond
+% the axial Fy / Fx peaks at intermediate (α, κ) — a non-physical puff.
+% The tighter values below pull the envelope inside a friction-ellipse
+% with rounded corners, which is what real fitted GT3 tyre data shows.
+% v06.1's data-fit will replace these starting values.
+p.rBy1 = 14.0;         % tightened from 8 (v06.0b)
 p.rBy2 = 8.0;
 p.rBy3 = 0.0;
 p.rCy1 = 1.0;
@@ -127,7 +134,7 @@ p.rVy5 = 1.9;
 p.rVy6 = 10.0;
 
 % Fx reduction by slip angle
-p.rBx1 = 15.0;
+p.rBx1 = 20.0;         % tightened from 15 (v06.0b)
 p.rBx2 = 8.0;
 p.rCx1 = 1.0;
 p.rEx1 = 0.0;
@@ -136,8 +143,8 @@ p.rHx1 = 0.0;
 
 %% Provenance metadata
 p.source     = 'FSAE TTC racing-slick generic; D scaled to match v05 calibration';
-p.version    = 'MF 5.2 (lateral + longitudinal + combined slip)';
-p.created    = '2026-04-22';
+p.version    = 'MF 5.2 (lateral + longitudinal + combined slip, G-tightened v06.0b)';
+p.created    = '2026-04-22b';
 p.notes      = ['Same coefficients used for front and rear initially. ' ...
                 'v06.1 will fit per-axle separately from logged data.'];
 

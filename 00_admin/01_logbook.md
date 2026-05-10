@@ -12,6 +12,68 @@
 
 ---
 
+## Entry 023 — 2026-04-22 — v06.1: Pacejka coefficients fitted from logged iRacing data; finding kept as diagnostic, not locked
+
+**Phase:** 6.5 (v06 Pacejka — v06.1 data-fit study)
+
+**Done:**
+- **Slip-angle pipeline.** Wrote `extract_pacejka_data.m` — pulls (|α|, Fz_per_tyre, |Fy_axle|) data points from the IBT reference lap. Slip angle from bicycle kinematics: `α_f = δ_wheel − atan2(VelocityY + a·YawRate, VelocityX)`, `α_r = − atan2(VelocityY − b·YawRate, VelocityX)`, with `a = weight_dist_r·L`, `b = weight_dist_f·L`, `δ_wheel = SteeringWheelAngle / steering_ratio`. Filters for pure cornering (`|a_lat| ≥ 5 m/s²`, `|a_long| ≤ 5 m/s²`, no pit road). 4960 data points kept out of 164,874 IBT samples.
+- **Steering ratio added to params.** `car.steering_ratio = 13` `[EST]` — typical for GT3 cars. Real value is team-confidential; 13:1 is the published GT3-typical default.
+- **Fitter.** Wrote `v06_1_run.m` — runs `extract_pacejka_data`, fits Pacejka `pDy1`, `pKy1` (peak μ and cornering stiffness) via `fminsearch` with normalised cost and physical-range soft priors. `pDy2` (load drop) locked at v05 anchor value because single-lap data has Fz-Fy correlation through aero downforce that hides the load-sensitivity signal. Plots before/after curves with raw data scatter, saves fitted struct to `pacejka_fit_v06_1.mat`.
+- **Two iterations of the fit.**
+  1. *3-parameter fit* (free `pDy1, pDy2, pKy1`) blew up — landed at `pDy2 ≈ 0` (no load drop), `pKy1 = +76` (positive — sign flip). Diagnosis: cost function compared signed Pacejka outputs to absolute-value data; optimizer flipped signs to match. Fixed by `abs()` on predictions and tighter penalties.
+  2. *2-parameter constrained fit* (lock `pDy2`, free `pDy1, pKy1`) converged to `pDy1 = 1.378`, `pKy1 = −60.9`, normalised cost = 0.170.
+
+**Found:**
+- **iRacing's GT3 tyre is stiffer and slightly flatter than v05/v06.0b's anchor.** Two-parameter fit drops `pDy1` from 1.475 to **1.378** (~6.6 % lower peak μ) and pushes `pKy1` from −35 to **−61** (~75 % higher cornering stiffness).
+- **Operating slip angle drops from 8-9° to 4-5°.** Mean peak α at the lap-solver operating point is now 4.4° front / 4.7° rear under the v06.1 fit, vs 8.4° / 9.0° under the v06.0b anchor. iRacing's tyre develops peak Fy at much smaller slip than typical real-Pirelli published data.
+- **Lap time with v06.1 fit: 8:17.240, Δ vs ref = +5.90 s (+1.20 %).** Outside charter (±1 %). Δ vs v06.0b = +5.72 s.
+- **The non-trivial finding: v05's calibration was lap-time-correct but slip-curve-biased.** The two parameter sets integrate to similar lap times even though their grip distributions are different: anchor = "more peak grip developed at larger slip", fit = "less peak grip developed at smaller slip". The driver's actual operating point sits in a region where both produce similar Fy, masking the bias. v06.1 exposed it.
+- **Why we don't lock the fit in:**
+  - `pDy2 ≈ 0` from the 3-param run (now locked at anchor) signals data is too narrow on Fz × Fy independence.
+  - Steering ratio 13 is `[EST]`; absolute α scale is sensitive to this. A 15:1 ratio would push α down 15 % and `pKy1` correspondingly. We can't disentangle without team setup data.
+  - Single-lap fitting (~5000 points, all from one driver) is structurally weak for a 6-parameter Pacejka curve. Multi-lap data + rig-quality measurements is what real teams use.
+
+**Think:**
+- **The "lap-time matches but slip curve doesn't" finding is the kind of insight a junior race engineer would write up after a tyre-correlation study.** It's also the textbook reason real teams don't trust lap-time calibration alone — you can pass a charter with a wrong tyre model if the integrated grip happens to be right. v06.1 did exactly the diagnostic job a Pacejka rollout is supposed to do, even though the fit itself isn't deployable.
+- **Why v06.0b stays as the head.** The v05/v06.0b path was calibrated honestly to the reference lap, and the lap-time match remains the strongest correlation evidence we have. The v06.1 fit invalidates the *peak μ assumption* but doesn't invalidate the *integrated grip* that drives lap time. For a portfolio piece, the fact that we caught and characterised the bias is a stronger story than burying v06.1 entirely.
+- **What v06.2 looks like.** Pool slip / Fy data across all clean laps (laps 7, 9, 10), confirm the steering ratio against an independent source (steering-rack ratio in a published GT3 setup sheet, or back-solved from a high-speed corner geometry), refit on the larger sample, and report the bias confidence interval. ~1 week.
+
+**Next:**
+- Document v06.1 as a *diagnostic finding* in the tech reference (§12.10) and the portfolio doc — but DO NOT replace v06.0b coefficients in `amg_gt3_params.m`. Keep `pacejka_fit_v06_1.mat` in `03_models/v06_pacejka/` as evidence.
+- Move forward to v07 (slip dynamics) using v06.0b's anchor calibration. v07's transient slip behaviour will sit on top of whichever Pacejka curve we trust; v06.1's diagnostic informs but doesn't gate v07.
+- Queue v06.2 (multi-lap data-fit + steering-ratio cross-check) as a future improvement.
+
+---
+
+## Entry 022 — 2026-04-22 — v06.0b: Pacejka G-factor envelope replaces friction-circle in the lap solver; identical lap time after coefficient tightening
+
+**Phase:** 6.5 (v06 Pacejka — closing)
+
+**Done:**
+- **Pacejka envelope helper.** Wrote `03_models/v06_pacejka/pacejka_envelope.m` — returns max |Fx| at given (Fy_req, Fz) from the actual MF 5.2 G-factor envelope. Implementation: a 26 × 30 lookup table (Fy_norm × Fz) built lazily on first call from a 30 × 41 (α, κ) sweep per Fz, persistent across calls. Re-builds automatically when the coefficient struct's `created` field changes. Build cost ≈ 0.2 s; per-call cost ≈ µs (interp2). Without the table, full lap runtime would have gone from ~10 s to ~5 min.
+- **`lap_sim_v06b.m`.** Drop-in replacement for `lap_sim_v06.m` in which Pass 2 / Pass 3 call `pacejka_envelope(F_y_tyre, Fz_tyre, p)` instead of `sqrt(F_grip² − F_y²)`. Per-tyre lateral demand is split 50/50 across the axle (an approximation; v06.1 will refine to per-tyre Fz-weighted split). Three-pass solver and continuity loop unchanged.
+- **G-factor coefficient tightening.** First v06.0b run produced 8:06.177 (−1.05 % — outside charter). Diagnosis: generic FSAE TTC G-factor coefficients (`rBy1 = 8`, `rBx1 = 15`) give an envelope that extends ~7 % beyond the axial Fy / Fx peaks at intermediate slip — the "puffy" envelope flagged in Step 2's standalone validation. Tightened to `rBy1 = 14` (was 8) and `rBx1 = 20` (was 15). Bumped `p.created` to `'2026-04-22b'` to force the lookup table to rebuild.
+
+**Found:**
+- **v06.0b lap = 8:13.002** (Δ vs ref **+1.66 s, +0.34 %**) — inside the ±1 % charter.
+- **Δ vs v06.0 = −0.069 s** — *the Pacejka G-factor envelope and the friction-circle approximation produce essentially identical lap times when the G-factors are tightened to a physically realistic envelope.* Friction circle was already correct as a QSS approximation.
+- Operating slip angles unchanged (8.4° front / 9.0° rear) because Pass 1 is the same in both versions.
+- Continuity loop converges in 1 iteration (same as v06.0, v05).
+- Lookup-table approach scales: full lap runtime is unchanged from v06.0 (~10 s).
+
+**Think:**
+- **The headline finding from v06.0b is the *non-difference*, not a lap-time gain.** Race engineers debate friction-circle vs full Pacejka G-factor coupling for QSS lap sims; v06.0b answers it for this car / track / coefficient set: it doesn't matter for the lap-time number. What it does matter for is *infrastructure* — having the envelope function in place means we can study trail-brake events, corner-exit traction, and per-corner combined-slip operating points at any time. v07 (slip dynamics) needs the envelope too; v06.0b put the plumbing in.
+- **The "puffy envelope" diagnosis is a reusable race-engineering checkpoint.** Any time someone hands us a Pacejka coefficient set, the first sanity test should be: does the (α, κ) sweep produce an envelope that stays within sqrt(Fy_peak² + Fx_peak²)? If it bulges outward, the G-factor coefficients are loose. The validate_pacejka_combined.m script catches this in 5 seconds; we caught it during Step 2 but accepted it as v06.0 starting values, then saw it manifest as a 6.9 s lap-time error in v06.0b. v06.1 (data-fit) will produce coefficients without this artefact.
+- **G-factor tightening was a documented coefficient change**, not a free-parameter calibration. The original FSAE TTC values were generic (a wider racing slick than ours, possibly with different combined-slip behaviour); tightening to match expected-from-data race-tyre behaviour is exactly what would happen on receipt of real Pirelli DHF TIR data.
+
+**Next:**
+- **Step 3c — close v06.0b**: tech-ref §12 addendum (the v06.0 → v06.0b coefficient tightening + the non-difference finding), portfolio doc + .docx + Pages-site update with v06.0b row, regenerate the .docx, README header bump.
+- **The one-pager figure** — single clean speed-overlay panel, calibrated v06.0b vs reference, for the Nürburgring project work document. Script ready (`06_reports/make_one_pager_figure.m`); just needs the v06.0b lap to be in the workspace.
+- **GitHub push** — once docs and figure are in, single commit and push to `main`. Pages site rebuilds automatically.
+
+---
+
 ## Entry 021 — 2026-04-22 — v06 lands: Pacejka MF 5.2 lateral + longitudinal + combined-slip wired into the lap solver
 
 **Phase:** 6.5 (v06 Pacejka extension)
