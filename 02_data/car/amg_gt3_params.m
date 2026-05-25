@@ -140,6 +140,15 @@ car.tyre.load_sens_k = 5.5e-5;  % [1/N]   Load sensitivity slope                
 
 car.tyre.rolling_radius = 0.327; % [m]     Effective rolling radius (325/705-18 GT3 spec)  [IRACING]
 
+car.tyre.sigma_alpha = 0.3;     % [m]     Lateral tyre relaxation length                  [EST]
+                                 %         Used in v07 slip dynamics: the contact patch
+                                 %         needs time / distance to develop the kinematic
+                                 %         slip angle. First-order step response in space:
+                                 %             dα_dyn/ds = (α_kin − α_dyn) / σ_α
+                                 %         Typical for racing slicks: 0.2..0.5 m. Real
+                                 %         value would come from rig data. 0.3 m is the
+                                 %         GT3-class published default.
+
 car.steering_ratio = 13;        % [-]     Steering wheel : front wheel angle ratio        [EST]
                                  %         Typical for GT3 cars (FIA 2020 GT3 reg).
                                  %         Used in v06.1 to derive front-axle slip angle
