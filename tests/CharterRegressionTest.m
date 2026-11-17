@@ -22,11 +22,19 @@ classdef CharterRegressionTest < matlab.unittest.TestCase
 
     methods (Test)
         function headLapWithinCharter(tc)
-            [lapTime, refTime] = runHeadSolver(tc.Root);
-            err = (lapTime - refTime) / refTime;
-            tc.log(1, sprintf("v06.0b lap %.3f s vs reference %.3f s (%+.2f %%)", ...
-                lapTime, refTime, 100*err));
-            tc.verifyLessThan(abs(err), 0.01, "Charter: |lap error| must stay below 1 %");
+            r = runHeadSolver(tc.Root);
+            for v = ["v06b", "v07"]
+                err = (r.(v) - r.ref) / r.ref;
+                tc.log(1, sprintf("%s lap %.3f s vs reference %.3f s (%+.3f s, %+.2f %%)", ...
+                    v, r.(v), r.ref, r.(v) - r.ref, 100*err));
+                tc.verifyLessThan(abs(err), 0.01, "Charter (" + v + "): |lap error| must stay below 1 %");
+            end
+        end
+
+        function slipBuildUpCostsTime(tc)
+            % v07 adds tyre relaxation on top of v06b: grip can only be lost, never gained
+            r = runHeadSolver(tc.Root);
+            tc.verifyGreaterThanOrEqual(r.v07, r.v06b - 1e-6);
         end
 
         function referenceTrackIsSane(tc)
@@ -38,12 +46,16 @@ classdef CharterRegressionTest < matlab.unittest.TestCase
     end
 end
 
-function [lapTime, refTime] = runHeadSolver(root)
-% Run the head solver (v06.0b) in an isolated workspace, exactly as a user would
+function r = runHeadSolver(root)
+% Run the head chain (v06.0b -> v07.0) once per session, in an isolated
+% workspace, exactly as a user would. Cached so both tests share one run.
+persistent cache
+if ~isempty(cache), r = cache; return; end
 run(fullfile(root, "02_data", "car", "amg_gt3_params.m"));   % -> car
 S = load(fullfile(root, "02_data", "track", "n24_track.mat"));
-track = S.track; %#ok<NASGU> used by the solver script
-run(fullfile(root, "03_models", "v06_pacejka", "lap_sim_v06b.m"));   % -> sim06b
-lapTime = sim06b.lap_time;
-refTime = S.track.meta.ref_laptime;
+track = S.track; %#ok<NASGU> used by the solver scripts
+run(fullfile(root, "03_models", "v06_pacejka", "lap_sim_v06b.m"));        % -> sim06b
+run(fullfile(root, "03_models", "v07_slip_dynamics", "lap_sim_v07.m"));    % -> sim07
+r = struct("v06b", sim06b.lap_time, "v07", sim07.lap_time, "ref", S.track.meta.ref_laptime);
+cache = r;
 end

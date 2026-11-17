@@ -6,13 +6,16 @@
 ![MATLAB](https://img.shields.io/badge/MATLAB-R2024a%2B-orange)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
+<img src="docs/figures/lap_replay.svg" alt="The reference lap replayed at real pace from iRacing telemetry: Nürburgring 24h track coloured by speed, with the speed trace" width="100%">
+
 A MATLAB-based quasi-steady-state (QSS) lap time simulator for the Mercedes-AMG GT3 around the Nürburgring 24h (VLN/NLS combined) layout, calibrated against iRacing telemetry read directly from `.ibt` files.
 
 **Author:** Jaykumar Patil
-**Status:** Phase 6.5 closed — v06.0b (Pacejka MF 5.2 + full G-factor envelope) is the head. Charter PASS at +0.34 % vs reference.
+**Status:** Phase 7 — **v07.0** (first-order tyre slip dynamics on top of v06.0b) is the head. Charter PASS at +0.42 % vs reference.
 **v05 calibrated:** 8:11.521 (Δ +0.18 s, +0.04 %)
 **v06.0** (Pacejka peak + friction circle): 8:13.071 (+0.35 %)
-**v06.0b** (Pacejka peak + G-factor envelope): **8:13.002** (Δ +1.66 s, +0.34 %) — current head
+**v06.0b** (Pacejka peak + G-factor envelope): 8:13.002 (Δ +1.66 s, +0.34 %)
+**v07.0** (+ slip build-up, relaxation length σ_α = 0.3 m): **8:13.383** (Δ +2.04 s, +0.42 %) — current head. The slip build-up costs +0.38 s vs v06.0b.
 **v06.1 data-fit** (diagnostic, not locked): pDy1 1.475 → 1.378, pKy1 −35 → −61. Lap with fit 8:17.240 (+1.20 %). Reveals ~6.6 % hidden peak-μ bias in v05/v06.0b's anchor.
 **Toolchain:** MATLAB R2024b · iRacing · Cosworth PI Toolbox Pro
 
@@ -93,7 +96,7 @@ The two sources produce schema-compatible `track` structs (`dist`, `kappa`, `ds`
 
 ## Charter regression test
 
-`tests/CharterRegressionTest.m` runs the head solver (v06.0b) end to end on the reference track and fails if the lap moves more than ±1 % away from the reference lap. That is the project charter turned into an automated check. It runs in GitHub Actions on every push and pull request, so a change that breaks correlation can't slip in unnoticed.
+`tests/CharterRegressionTest.m` runs the head chain (v06.0b → v07.0) end to end on the reference track and fails if the lap moves more than ±1 % away from the reference lap. That is the project charter turned into an automated check. It runs in GitHub Actions on every push and pull request, so a change that breaks correlation can't slip in unnoticed. All v06.0b and v07.0 numbers above are the ones CI reproduces.
 
 ```matlab
 >> buildtool        % code analysis + charter regression test
