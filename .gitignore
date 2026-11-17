@@ -56,3 +56,6 @@ docs/_site/
 # --- Sensitive ---
 # (none yet, but a placeholder. Never commit credentials, API keys, or
 # anything you wouldn't show in an interview.)
+
+# --- MATLAB build tool cache ---
+.buildtool/
