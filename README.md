@@ -1,6 +1,10 @@
 # Nürburgring 24h Lap Time Simulator — Mercedes-AMG GT3
 
-> 🌐 Live project page: jaykumarpatil9099.github.io/gt3-lap-time-simulator
+[![CI](https://github.com/jaykumarpatil9099/gt3-lap-time-simulator/actions/workflows/ci.yml/badge.svg)](https://github.com/jaykumarpatil9099/gt3-lap-time-simulator/actions/workflows/ci.yml)
+[![Open in MATLAB Online](https://www.mathworks.com/images/responsive/global/open-in-matlab-online.svg)](https://matlab.mathworks.com/open/github/v1?repo=jaykumarpatil9099/gt3-lap-time-simulator&file=startup_project.m)
+[![Project page](https://img.shields.io/badge/project%20page-live-blue)](https://jaykumarpatil9099.github.io/gt3-lap-time-simulator/)
+![MATLAB](https://img.shields.io/badge/MATLAB-R2024a%2B-orange)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 A MATLAB-based quasi-steady-state (QSS) lap time simulator for the Mercedes-AMG GT3 around the Nürburgring 24h (VLN/NLS combined) layout, calibrated against iRacing telemetry read directly from `.ibt` files.
 
@@ -86,6 +90,14 @@ The simulator can be driven from either of two centerline sources. The entry poi
 **`track_source = 'gps'`** — `build_track_from_gps.m`. Curvature is computed geometrically from the (x, y) centerline extracted from a PI Toolbox `.pxt` workbook, using central differences on a 1 m grid: `κ = (x'y'' − y'x'') / (x'² + y'²)^(3/2)`. Peak-κ preservation: ~94 %. Used for **sensitivity** and **setup studies** (no driver-line bias).
 
 The two sources produce schema-compatible `track` structs (`dist`, `kappa`, `ds`, `n`, `length`, `ref.*`, `meta.*`); the GPS path adds bonus fields (`x`, `y`, `z`, `lat`, `lon`, `kappa_signed`).
+
+## Charter regression test
+
+`tests/CharterRegressionTest.m` runs the head solver (v06.0b) end to end on the reference track and fails if the lap moves more than ±1 % away from the reference lap. That is the project charter turned into an automated check. It runs in GitHub Actions on every push and pull request, so a change that breaks correlation can't slip in unnoticed.
+
+```matlab
+>> buildtool        % code analysis + charter regression test
+```
 
 ## Typical run sequence
 

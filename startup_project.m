@@ -4,7 +4,7 @@
 %  parameters into the workspace so everything is ready to go.
 %
 %  Usage:
-%    >> cd 'C:\Users\jayku\Documents\Claude\Projects\Lap time simulator'
+%    >> cd <path-to-this-repo>
 %    >> startup_project
 %
 %  Or just double-click this file in MATLAB's file browser.
@@ -25,5 +25,5 @@ addpath(genpath('05_studies'), '-end');
 fprintf('Project folders added to path (session only).\n');
 
 %% Load vehicle parameters
-run('02_data\car\amg_gt3_params.m');
+run(fullfile('02_data', 'car', 'amg_gt3_params.m'));   % fullfile: works on Windows, macOS, Linux and MATLAB Online
 fprintf('Car parameters loaded: %s\n\n', car.meta.name);
