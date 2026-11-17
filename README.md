@@ -6,6 +6,8 @@
 ![MATLAB](https://img.shields.io/badge/MATLAB-R2024a%2B-orange)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
+<img src="docs/figures/lap_replay.svg" alt="The reference lap replayed at real pace from iRacing telemetry: Nürburgring 24h track coloured by speed, with the speed trace" width="100%">
+
 A MATLAB-based quasi-steady-state (QSS) lap time simulator for the Mercedes-AMG GT3 around the Nürburgring 24h (VLN/NLS combined) layout, calibrated against iRacing telemetry read directly from `.ibt` files.
 
 **Author:** Jaykumar Patil
